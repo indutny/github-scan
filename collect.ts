@@ -70,7 +70,9 @@ async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
 
     const timeout = Math.max(0, resetAt - Date.now());
     console.error(`waiting ${(timeout / 1000) | 0} seconds`);
-    await delay(timeout);
+
+    // Add extra seconds to prevent immediate exhaustion
+    await delay(timeout + 10000);
 
     return await githubRequest(path);
   }
