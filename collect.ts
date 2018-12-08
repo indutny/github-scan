@@ -9,7 +9,8 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
 const KEYS_DIR = path.join(__dirname, 'keys');
-const LAST_INDEX_FILE = path.join(KEYS_DIR, '.last-index.json');
+const LAST_INDEX_FILE = path.join(KEYS_DIR, 'last-index.json');
+const USER_FILE = path.join(KEYS_DIR, 'users.json');
 
 interface IUser {
   readonly login: string;
@@ -119,9 +120,10 @@ async function* fetchAll() {
 }
 
 async function main() {
+  const out = fs.createWriteStream(USER_FILE, { flags: 'a+' });
   for await (const pair of fetchAll()) {
     const fileName = path.join(KEYS_DIR, pair.user.login + '.json');
-    await fs.promises.writeFile(fileName, JSON.stringify(pair));
+    out.write('\n' + JSON.stringify(pair));
   }
 }
 
