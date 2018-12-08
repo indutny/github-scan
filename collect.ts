@@ -52,6 +52,8 @@ async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
       res = await fetch(url);
     } catch (e) {
       console.error(e.message);
+      console.error('Retrying in 5 secs');
+      await delay(5000);
       continue;
     }
     break;
@@ -62,6 +64,8 @@ async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
     const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
     if (remaining > 0) {
       console.error(`403, but still have ${remaining} reqs left`);
+      console.error('Retrying in 5 secs');
+      await delay(5000);
       return await githubRequest(path);
     }
 
@@ -69,7 +73,7 @@ async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
     console.error(`rate limited until: ${new Date(resetAt)}`);
 
     const timeout = Math.max(0, resetAt - Date.now());
-    console.error(`waiting ${(timeout / 1000) | 0} seconds`);
+    console.error(`Retrying in ${(timeout / 1000) | 0} secs`);
 
     // Add extra seconds to prevent immediate exhaustion
     await delay(timeout + 10000);
