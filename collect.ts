@@ -8,6 +8,9 @@ const GITHUB_API = 'https://api.github.com';
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
+const KEYS_DIR = path.join(__dirname, 'keys');
+const LAST_INDEX_FILE = path.join(KEYS_DIR, '.last-index.json');
+
 interface IUser {
   readonly login: string;
   readonly id: number;
@@ -55,10 +58,18 @@ async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
 
   // Rate-limiting
   if (res.status === 403) {
+    const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
+    if (remaining > 0) {
+      console.error(`403, but still have ${remaining} reqs left`);
+      return await githubRequest(path);
+    }
+
     const resetAt = parseInt(res.headers.get('x-ratelimit-reset')!, 10) * 1000;
     console.error(`rate limited until: ${new Date(resetAt)}`);
 
-    await delay(Math.max(0, resetAt - Date.now()));
+    const timeout = Math.max(0, resetAt - Date.now());
+    console.error(`waiting ${(timeout / 1000) | 0} seconds`);
+    await delay(timeout);
 
     return await githubRequest(path);
   }
@@ -73,9 +84,17 @@ async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
 async function* githubUsers() {
   let lastId = 0;
 
+  try {
+    const rawIndex = await fs.promises.readFile(LAST_INDEX_FILE)
+    lastId = parseInt(rawIndex.toString(), 10);
+  } catch (e) {
+    console.error('No index file, using 0');
+  }
+
   for (;;) {
     const list = await githubRequest<UserList>('/users', `since=${lastId}`);
     lastId = list[list.length - 1].id;
+    await fs.promises.writeFile(LAST_INDEX_FILE, lastId.toString());
 
     yield list;
   }
@@ -101,8 +120,8 @@ async function* fetchAll() {
 
 async function main() {
   for await (const pair of fetchAll()) {
-    fs.writeFileSync(path.join(__dirname, 'keys', pair.user.login + '.json'),
-      JSON.stringify(pair));
+    const fileName = path.join(KEYS_DIR, pair.user.login + '.json');
+    await fs.promises.writeFile(fileName, JSON.stringify(pair));
   }
 }
 
