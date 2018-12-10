@@ -133,7 +133,8 @@ async function* githubUsers() {
 }
 
 async function githubKeys(user: IUser) {
-  return await githubRequest<KeyList>(`/users/${user.login}/keys`);
+  const [ keys, _ ] = await githubRequest<KeyList>(`/users/${user.login}/keys`);
+  return keys;
 }
 
 async function* fetchAll() {
