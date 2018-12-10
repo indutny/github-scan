@@ -112,6 +112,8 @@ async function* githubUsers() {
     console.error('No index file, using 0');
   }
 
+  const seenSince: Map<string, number> = new Map();
+
   for (;;) {
     const [ list, next ] =
         await githubRequest<UserList>('/users', `since=${lastId}`);
@@ -124,6 +126,14 @@ async function* githubUsers() {
     const match = next.match(/\/users\?(?:.*)since=(\d+)/);
     if (!match) {
       throw new Error(`Invalid link header: ${next}`);
+    }
+
+    for (const user of list) {
+      if (seenSince.has(user.login)) {
+        console.error(`Duplicate user: "${user.login}" previous entry at:` +
+          `${seenSince.get(user.login)!} current at: ${lastId}`);
+      }
+      seenSince.set(user.login, lastId);
     }
 
     lastId = parseInt(match[1]);
