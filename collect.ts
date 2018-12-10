@@ -34,7 +34,8 @@ async function delay(ms: number): Promise<void> {
   });
 }
 
-async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
+async function githubRequest<T>(path: string, query: string = '')
+    : Promise<[T, false | string]> {
   let url = `${GITHUB_API}${path}`;
   if (GITHUB_CLIENT_ID) {
     url += `?client_id=${GITHUB_CLIENT_ID}`;
@@ -82,10 +83,23 @@ async function githubRequest<T>(path: string, query: string = ''): Promise<T> {
   }
 
   if (res.status !== 200) {
-    throw new Error(`Unexpected error code: ${res.status}`);
+    console.error(`Unexpected error code: ${res.status}`);
+    console.error('Retrying in 5 secs');
+    await delay(5000);
+    return await githubRequest(path);
   }
 
-  return await res.json();
+  const link = res.headers.get('link');
+  let next: boolean | string = false;
+  if (link) {
+    // Link: <...>; rel="next"
+    const match = link.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (match) {
+      next = match[1];
+    }
+  }
+
+  return [ await res.json(), next ];
 }
 
 async function* githubUsers() {
@@ -99,9 +113,20 @@ async function* githubUsers() {
   }
 
   for (;;) {
-    const list = await githubRequest<UserList>('/users', `since=${lastId}`);
-    lastId = list[list.length - 1].id;
+    const [ list, next ] =
+        await githubRequest<UserList>('/users', `since=${lastId}`);
     await fs.promises.writeFile(LAST_INDEX_FILE, lastId.toString());
+
+    if (!next) {
+      throw new Error('Expected next page link!');
+    }
+
+    const match = next.match(/\/users\?(?:.*)since=(\d+)/);
+    if (!match) {
+      throw new Error(`Invalid link header: ${next}`);
+    }
+
+    lastId = parseInt(match[1]);
 
     yield list;
   }
