@@ -140,9 +140,8 @@ async function* githubUsers(): AsyncIterableIterator<UserList> {
 
     for (const user of list) {
       if (seenSince.has(user.login)) {
-        debug(`Duplicate user: "${user.login}" previous entry at:` +
+        throw new Error(`Duplicate user: "${user.login}" previous entry at:` +
           `${seenSince.get(user.login)!} current at: ${lastId}`);
-        throw new Error('done');
       }
       seenSince.set(user.login, lastId);
     }
