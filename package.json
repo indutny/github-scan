@@ -10,8 +10,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/debug": "0.0.31",
     "@types/node": "^10.12.12",
     "@types/node-fetch": "^2.1.4",
+    "debug": "^4.1.0",
     "node-fetch": "^2.3.0"
   },
   "devDependencies": {

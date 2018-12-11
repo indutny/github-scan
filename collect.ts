@@ -1,8 +1,11 @@
 #!/usr/bin/env npx ts-node
+import * as debugAPI from 'debug';
 import * as fs from 'fs';
 import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
 import * as path from 'path';
+
+const debug = debugAPI('github-scan');
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
@@ -28,6 +31,11 @@ interface IKey {
 type UserList = ReadonlyArray<IUser>;
 type KeyList = ReadonlyArray<IKey>;
 
+interface IGithubPair {
+  readonly user: IUser;
+  readonly keys: KeyList;
+}
+
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -47,13 +55,15 @@ async function githubRequest<T>(path: string, query: string = '')
     url += `?${query}`;
   }
 
+  debug(`request ${path}?${query}`);
+
   let res: Response;
   for (;;) {
     try {
       res = await fetch(url);
     } catch (e) {
-      console.error(e.message);
-      console.error('Retrying in 5 secs');
+      debug(e.message);
+      debug(`retrying ${url} in 5 secs`);
       await delay(5000);
       continue;
     }
@@ -64,17 +74,17 @@ async function githubRequest<T>(path: string, query: string = '')
   if (res.status === 403) {
     const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
     if (remaining > 0) {
-      console.error(`403, but still have ${remaining} reqs left`);
-      console.error('Retrying in 5 secs');
+      debug(`403, but still have ${remaining} reqs left`);
+      debug('Retrying in 5 secs');
       await delay(5000);
       return await githubRequest(path);
     }
 
     const resetAt = parseInt(res.headers.get('x-ratelimit-reset')!, 10) * 1000;
-    console.error(`rate limited until: ${new Date(resetAt)}`);
+    debug(`rate limited until: ${new Date(resetAt)}`);
 
     const timeout = Math.max(0, resetAt - Date.now());
-    console.error(`Retrying in ${(timeout / 1000) | 0} secs`);
+    debug(`retrying ${path}?${query} in ${(timeout / 1000) | 0} secs`);
 
     // Add extra seconds to prevent immediate exhaustion
     await delay(timeout + 10000);
@@ -83,8 +93,8 @@ async function githubRequest<T>(path: string, query: string = '')
   }
 
   if (res.status !== 200) {
-    console.error(`Unexpected error code: ${res.status}`);
-    console.error('Retrying in 5 secs');
+    debug(`Unexpected error code: ${res.status}`);
+    debug('Retrying in 5 secs');
     await delay(5000);
     return await githubRequest(path);
   }
@@ -102,14 +112,14 @@ async function githubRequest<T>(path: string, query: string = '')
   return [ await res.json(), next ];
 }
 
-async function* githubUsers() {
+async function* githubUsers(): AsyncIterableIterator<UserList> {
   let lastId = 0;
 
   try {
     const rawIndex = await fs.promises.readFile(LAST_INDEX_FILE)
     lastId = parseInt(rawIndex.toString(), 10);
   } catch (e) {
-    console.error('No index file, using 0');
+    debug('No index file, using 0');
   }
 
   const seenSince: Map<string, number> = new Map();
@@ -130,8 +140,9 @@ async function* githubUsers() {
 
     for (const user of list) {
       if (seenSince.has(user.login)) {
-        console.error(`Duplicate user: "${user.login}" previous entry at:` +
+        debug(`Duplicate user: "${user.login}" previous entry at:` +
           `${seenSince.get(user.login)!} current at: ${lastId}`);
+        throw new Error('done');
       }
       seenSince.set(user.login, lastId);
     }
@@ -147,8 +158,15 @@ async function githubKeys(user: IUser) {
   return keys;
 }
 
-async function* fetchAll() {
-  for await (const userPage of githubUsers()) {
+async function* fetchAll(): AsyncIterableIterator<IGithubPair> {
+  const iter = githubUsers();
+  for (;;) {
+    const i = await iter.next();
+    if (i.done) {
+      break;
+    }
+    const userPage = i.value;
+
     const pairs = await Promise.all(userPage.map(async (user) => {
       const keys = await githubKeys(user);
 
@@ -162,8 +180,14 @@ async function* fetchAll() {
 }
 
 async function main() {
+  const iter = fetchAll();
   const out = fs.createWriteStream(USER_FILE, { flags: 'a+' });
-  for await (const pair of fetchAll()) {
+  for (;;) {
+    const i = await iter.next();
+    if (i.done) {
+      break;
+    }
+    const pair = i.value;
     const fileName = path.join(KEYS_DIR, pair.user.login + '.json');
     out.write('\n' + JSON.stringify(pair));
   }
