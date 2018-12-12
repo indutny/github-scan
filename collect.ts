@@ -139,15 +139,20 @@ async function* githubUsers(): AsyncIterableIterator<UserList> {
     }
 
     const hasDuplicates = list.some((user) => {
-      if (seenSince.has(user.login) || user.id < lastId) {
+      if (seenSince.has(user.login)) {
         debug(`Duplicate user: "${user.login}" previous entry at:` +
           `${seenSince.get(user.login)!} current at: ${lastId}`);
+        return true;
+      }
+      if (user.id < lastId) {
+        debug(
+            `Non-monotonic user id for "${user.login}" ${user.id} >= ${lastId}`);
         return true;
       }
       return false;
     });
 
-    if (hasDuplicate) {
+    if (hasDuplicates) {
       debug('Got duplicates, retrying in 1sec');
       await delay(1000);
       continue;
