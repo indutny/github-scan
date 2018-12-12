@@ -138,11 +138,22 @@ async function* githubUsers(): AsyncIterableIterator<UserList> {
       throw new Error(`Invalid link header: ${next}`);
     }
 
-    for (const user of list) {
+    const hasDuplicates = list.some((user) => {
       if (seenSince.has(user.login)) {
-        throw new Error(`Duplicate user: "${user.login}" previous entry at:` +
+        debug(`Duplicate user: "${user.login}" previous entry at:` +
           `${seenSince.get(user.login)!} current at: ${lastId}`);
+        return true;
       }
+      return false;
+    });
+
+    if (hasDuplicate) {
+      debug('Got duplicates, retrying in 1sec');
+      await delay(1000);
+      continue;
+    }
+
+    for (const user of list) {
       seenSince.set(user.login, lastId);
     }
 
