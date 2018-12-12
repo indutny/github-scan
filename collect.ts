@@ -77,7 +77,7 @@ async function githubRequest<T>(path: string, query: string = '')
       debug(`403, but still have ${remaining} reqs left`);
       debug('Retrying in 5 secs');
       await delay(5000);
-      return await githubRequest(path);
+      return await githubRequest(path, query);
     }
 
     const resetAt = parseInt(res.headers.get('x-ratelimit-reset')!, 10) * 1000;
@@ -89,14 +89,14 @@ async function githubRequest<T>(path: string, query: string = '')
     // Add extra seconds to prevent immediate exhaustion
     await delay(timeout + 10000);
 
-    return await githubRequest(path);
+    return await githubRequest(path, query);
   }
 
   if (res.status !== 200) {
     debug(`Unexpected error code: ${res.status}`);
     debug('Retrying in 5 secs');
     await delay(5000);
-    return await githubRequest(path);
+    return await githubRequest(path, query);
   }
 
   const link = res.headers.get('link');
@@ -122,8 +122,6 @@ async function* githubUsers(): AsyncIterableIterator<UserList> {
     debug('No index file, using 0');
   }
 
-  const seenSince: Map<string, number> = new Map();
-
   for (;;) {
     const [ list, next ] =
         await githubRequest<UserList>('/users', `since=${lastId}`);
@@ -138,30 +136,6 @@ async function* githubUsers(): AsyncIterableIterator<UserList> {
       throw new Error(`Invalid link header: ${next}`);
     }
 
-    const hasDuplicates = list.some((user) => {
-      if (seenSince.has(user.login)) {
-        debug(`Duplicate user: "${user.login}" previous entry at:` +
-          `${seenSince.get(user.login)!} current at: ${lastId}`);
-        return true;
-      }
-      if (user.id < lastId) {
-        debug(
-            `Non-monotonic user id for "${user.login}" ${user.id} >= ${lastId}`);
-        return true;
-      }
-      return false;
-    });
-
-    if (hasDuplicates) {
-      debug('Got duplicates, retrying in 1sec');
-      await delay(1000);
-      continue;
-    }
-
-    for (const user of list) {
-      seenSince.set(user.login, lastId);
-    }
-
     lastId = parseInt(match[1]);
 
     yield list;
@@ -174,14 +148,7 @@ async function githubKeys(user: IUser) {
 }
 
 async function* fetchAll(): AsyncIterableIterator<IGithubPair> {
-  const iter = githubUsers();
-  for (;;) {
-    const i = await iter.next();
-    if (i.done) {
-      break;
-    }
-    const userPage = i.value;
-
+  for await (const userPage of githubUsers()) {
     const pairs = await Promise.all(userPage.map(async (user) => {
       const keys = await githubKeys(user);
 
@@ -195,14 +162,8 @@ async function* fetchAll(): AsyncIterableIterator<IGithubPair> {
 }
 
 async function main() {
-  const iter = fetchAll();
   const out = fs.createWriteStream(USER_FILE, { flags: 'a+' });
-  for (;;) {
-    const i = await iter.next();
-    if (i.done) {
-      break;
-    }
-    const pair = i.value;
+  for await (const pair of fetchAll()) {
     const fileName = path.join(KEYS_DIR, pair.user.login + '.json');
     out.write('\n' + JSON.stringify(pair));
   }
