@@ -1,128 +1,113 @@
 #!/usr/bin/env npx ts-node
 import * as fs from 'fs';
+import * as path from 'path';
 import * as debugAPI from 'debug';
-import * as ProgressBar from 'progress';
+import * as os from 'os';
+import { fork, ChildProcess } from 'child_process';
 
-import { splitParse } from '../src/common';
+import { splitParse, productTree, remainderTree } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
 const KEY_LIST = process.argv[2];
 
-const TWO = BigInt(2);
-
-type ProductTree = ReadonlyArray<ReadonlyArray<bigint>>;
+const WORKER_PATH = path.join(__dirname, '..', 'src', 'worker');
+const CPU_COUNT = os.cpus().length;
 
 interface ICheckMatch {
   readonly index: number;
   readonly divisor: bigint;
 }
 
-function productTree(values: ReadonlyArray<bigint>,
-                     counter: () => void): ProductTree {
-  if (values.length === 1) {
-    return [ [ values[0] ] ];
-  }
-
-  if (values.length % 2 !== 0) {
-    throw new Error('Invalid values');
-  }
-
-  const res: bigint[] = [];
-  for (let i = 0; i < values.length; i += 2) {
-    const left = values[i];
-    const right = values[i + 1];
-
-    counter();
-    res.push(left * right);
-  }
-
-  return productTree(res, counter).concat([ values ]);
-}
-
-function remainderTree(tree: ProductTree,
-                       counter: () => void): ReadonlyArray<bigint> {
-  let prev: bigint[] = tree[0].slice();
-
-  for (let i = 1; i < tree.length; i++) {
-    const curr = tree[i];
-
-    const result: bigint[] = [];
-    for (let j = 0; j < curr.length; j++) {
-      result.push(prev[j >>> 1] % (curr[j] ** TWO));
-      counter();
-    }
-    prev = result;
-  }
-  return prev;
-}
-
-function gcd(a: bigint, b: bigint): bigint {
-  while (b !== 0n) {
-    const t = a % b;
-    a = b;
-    b = t;
-  }
-  return a;
-}
-
-function check(moduli: ReadonlyArray<bigint>) {
+// Algorithm by Bernstein:
+// https://cr.yp.to/factorization/smoothparts-20040510.pdf
+// See: https://factorable.net/weakkeys12.conference.pdf
+async function check(moduli: ReadonlyArray<bigint>) {
   debug(`running the check on ${moduli.length} moduli`);
 
-  let totalOps = 0;
-
-  // Product tree ops
-  totalOps += moduli.length - 1;
-
-  // Remainder tree ops
-  totalOps += moduli.length - 1;
-
-  // Quotient ops
-  totalOps += moduli.length;
-
-  // GCD ops
-  totalOps += moduli.length;
-
-  const bar = new ProgressBar('[:bar] :percent :elapsed/:eta sec', {
-    total: totalOps,
-    width: 80,
-  });
-
-  let finishedOps = 0;
-  const counter = () => {
-    finishedOps++;
-    bar.tick();
-  };
-
-  // Algorithm by Bernstein:
-  // https://cr.yp.to/factorization/smoothparts-20040510.pdf
-  // See: https://factorable.net/weakkeys12.conference.pdf
-  const products = productTree(moduli, counter);
-  debug(`computed product tree of depth ${products.length}`);
-
-  const remainders = remainderTree(products, counter);
-  debug(`computed remainders`);
-
-  const quotients: bigint[] = [];
-  for (let i = 0; i < moduli.length; i++) {
-    quotients.push(remainders[i] / moduli[i]);
-    counter();
+  if (moduli.length % CPU_COUNT !== 0) {
+    throw new Error('Need power of two processors');
   }
-  debug(`computed quotients`);
 
-  const gcds: bigint[] = [];
-  for (let i = 0; i < quotients.length; i++) {
-    gcds.push(gcd(quotients[i], moduli[i]));
-    counter();
+  debug(`spawning ${CPU_COUNT} workers`);
+  const workers: ChildProcess[] = [];
+  for (let i = 0; i < CPU_COUNT; i++) {
+    workers.push(fork(WORKER_PATH));
   }
-  debug(`computed gcds`);
+
+  debug('distributing moduli to each worker and computing product tree');
+  const splitSize = moduli.length / workers.length;
+
+  let promises: Promise<bigint>[] = [];
+  for (const [ i, worker ] of workers.entries()) {
+    promises.push(new Promise((resolve, reject) => {
+      worker.once('message', (msg) => {
+        if (msg.type !== 'product-tree') {
+          reject(new Error(`Unexpected message "${msg.type}"`));
+          return;
+        }
+
+        debug(`got product tree top from worker ${i} len=${msg.top.length}`);
+        resolve(BigInt(msg.top));
+      });
+    }));
+
+    worker.send({
+      type: 'product-tree',
+      moduli: moduli.slice(i * splitSize, (i + 1) * splitSize).map((mod) => {
+        return `0x${mod.toString(16)}`;
+      }),
+    });
+  }
+
+  debug('waiting for partial product tree completion');
+
+  const treeTops = await Promise.all(promises);
+
+  debug('computing head of the product tree');
+  const productHead = productTree(treeTops);
+
+  debug('computing remainders of head of the product tree');
+  const remainders = remainderTree(productHead);
+  if (remainders.length !== workers.length) {
+    throw new Error('Unexpected remainders length');
+  }
+
+  debug('distributing tree head to each worker and computing remainder tree');
+  promises = [];
+  for (const [ i, worker ] of workers.entries()) {
+    promises.push(new Promise((resolve, reject) => {
+      worker.once('message', (msg) => {
+        if (msg.type !== 'remainder-tree') {
+          reject(new Error(`Unexpected message "${msg.type}"`));
+          return;
+        }
+
+        debug(`got gcd from worker ${i}`);
+        resolve(msg.gcds.map((num: string) => BigInt(num)));
+      });
+    }));
+
+    worker.send({
+      type: 'remainder-tree',
+      head: `0x${remainders[i].toString(16)}`,
+    });
+  }
+
+  debug('waiting for all gcds');
+  const gcds = await Promise.all(promises);
+
+  for (const worker of workers) {
+    worker.kill();
+  }
 
   const matches: ICheckMatch[] = [];
-  for (const [ i, gcd ] of gcds.entries()) {
+  for (const [ i, gcd ] of gcds.flat().entries()) {
     if (gcd !== 1n) {
       matches.push({ index: i, divisor: gcd });
     }
   }
+
   return matches;
 }
 
@@ -154,7 +139,7 @@ async function main() {
     moduli.push(padValue);
   }
 
-  const matches = check(moduli);
+  const matches = await check(moduli);
   debug(`got ${matches.length} matches`);
 
   for (const match of matches) {
