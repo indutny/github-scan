@@ -1,6 +1,7 @@
 #!/usr/bin/env npx ts-node
 import * as fs from 'fs';
 import * as debugAPI from 'debug';
+import * as ProgressBar from 'progress';
 
 import { splitParse } from '../src/common';
 
@@ -17,7 +18,8 @@ interface ICheckMatch {
   readonly divisor: bigint;
 }
 
-function productTree(values: ReadonlyArray<bigint>): ProductTree {
+function productTree(values: ReadonlyArray<bigint>,
+                     counter: () => void): ProductTree {
   if (values.length === 1) {
     return [ [ values[0] ] ];
   }
@@ -31,13 +33,15 @@ function productTree(values: ReadonlyArray<bigint>): ProductTree {
     const left = values[i];
     const right = values[i + 1];
 
+    counter();
     res.push(left * right);
   }
 
-  return productTree(res).concat([ values ]);
+  return productTree(res, counter).concat([ values ]);
 }
 
-function remainderTree(tree: ProductTree): ReadonlyArray<bigint> {
+function remainderTree(tree: ProductTree,
+                       counter: () => void): ReadonlyArray<bigint> {
   let prev: bigint[] = tree[0].slice();
 
   for (let i = 1; i < tree.length; i++) {
@@ -46,6 +50,7 @@ function remainderTree(tree: ProductTree): ReadonlyArray<bigint> {
     const result: bigint[] = [];
     for (let j = 0; j < curr.length; j++) {
       result.push(prev[j >>> 1] % (curr[j] ** TWO));
+      counter();
     }
     prev = result;
   }
@@ -64,24 +69,51 @@ function gcd(a: bigint, b: bigint): bigint {
 function check(moduli: ReadonlyArray<bigint>) {
   debug(`running the check on ${moduli.length} moduli`);
 
+  let totalOps = 0;
+
+  // Product tree ops
+  totalOps += moduli.length - 1;
+
+  // Remainder tree ops
+  totalOps += moduli.length - 1;
+
+  // Quotient ops
+  totalOps += moduli.length;
+
+  // GCD ops
+  totalOps += moduli.length;
+
+  const bar = new ProgressBar('[:bar] :percent :elapsed/:eta sec', {
+    total: totalOps,
+    width: 80,
+  });
+
+  let finishedOps = 0;
+  const counter = () => {
+    finishedOps++;
+    bar.tick();
+  };
+
   // Algorithm by Bernstein:
   // https://cr.yp.to/factorization/smoothparts-20040510.pdf
   // See: https://factorable.net/weakkeys12.conference.pdf
-  const products = productTree(moduli);
+  const products = productTree(moduli, counter);
   debug(`computed product tree of depth ${products.length}`);
 
-  const remainders = remainderTree(products);
+  const remainders = remainderTree(products, counter);
   debug(`computed remainders`);
 
   const quotients: bigint[] = [];
   for (let i = 0; i < moduli.length; i++) {
     quotients.push(remainders[i] / moduli[i]);
+    counter();
   }
   debug(`computed quotients`);
 
   const gcds: bigint[] = [];
   for (let i = 0; i < quotients.length; i++) {
     gcds.push(gcd(quotients[i], moduli[i]));
+    counter();
   }
   debug(`computed gcds`);
 
@@ -126,7 +158,7 @@ async function main() {
   debug(`got ${matches.length} matches`);
 
   for (const match of matches) {
-    process.stdout.write(`${match.index},${match.divisor.toString(16)}`);
+    process.stdout.write(`${match.index},${match.divisor.toString(16)}\n`);
   }
 }
 
