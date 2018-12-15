@@ -5,36 +5,17 @@ import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
 import * as path from 'path';
 
+import { UserList, KeyList, IPair, IUser } from '../src/common';
+
 const debug = debugAPI('github-scan');
 
 const GITHUB_API = 'https://api.github.com';
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
-const KEYS_DIR = path.join(__dirname, 'keys');
+const KEYS_DIR = path.join(__dirname, '..', 'keys');
 const LAST_INDEX_FILE = path.join(KEYS_DIR, 'last-index.json');
 const USER_FILE = path.join(KEYS_DIR, 'users.json');
-
-interface IUser {
-  readonly login: string;
-  readonly id: number;
-  readonly avatar_url: string;
-  readonly gravatar_id: string;
-  readonly email: string;
-}
-
-interface IKey {
-  readonly id: number;
-  readonly key: string;
-}
-
-type UserList = ReadonlyArray<IUser>;
-type KeyList = ReadonlyArray<IKey>;
-
-interface IGithubPair {
-  readonly user: IUser;
-  readonly keys: KeyList;
-}
 
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -147,7 +128,7 @@ async function githubKeys(user: IUser) {
   return keys;
 }
 
-async function* fetchAll(): AsyncIterableIterator<IGithubPair> {
+async function* fetchAll(): AsyncIterableIterator<IPair> {
   for await (const userPage of githubUsers()) {
     const pairs = await Promise.all(userPage.map(async (user) => {
       const keys = await githubKeys(user);

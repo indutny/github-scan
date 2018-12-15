@@ -1,53 +1,14 @@
 #!/usr/bin/env npx ts-node
-import { Readable } from 'stream';
 import { Buffer } from 'buffer';
 import * as fs from 'fs';
+
+import { splitParse, IPair } from '../src/common';
 
 const KEYS_FILE = process.argv[2];
 const OUT_USER_MAP = process.argv[3];
 const OUT_KEY_LIST = process.argv[4];
 
 const WHITESPACE = /\s+/g;
-
-interface IKey {
-  readonly id: number;
-  readonly key: string;
-}
-
-interface IUser {
-  readonly login: string;
-}
-
-interface IPair {
-  readonly user: IUser;
-  readonly keys: ReadonlyArray<IKey>;
-}
-
-async function* splitParse<T>(stream: Readable) {
-  let buffer: string = '';
-  for await (const data of stream) {
-    let start: number = 0;
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] === 0xa) {
-        buffer += data.slice(start, i);
-        start = i + 1;
-        if (buffer) {
-          yield (JSON.parse(buffer) as T);
-        }
-
-        buffer = '';
-      }
-    }
-
-    if (start < data.length) {
-      buffer += data.slice(start);
-    }
-  }
-
-  if (buffer) {
-    yield (JSON.parse(buffer) as T);
-  }
-}
 
 function parseSSHKey(key: string): string | false {
   if (!key.startsWith('ssh-rsa ')) {
@@ -87,7 +48,7 @@ async function main() {
   };
 
   const keyMap: Map<string, number> = new Map();
-  for await (const pair of splitParse<IPair>(stream)) {
+  for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
     const keyIds: number[] = [];
     for (const key of pair.keys) {
       const mod = parseSSHKey(key.key);
