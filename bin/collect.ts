@@ -5,7 +5,7 @@ import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
 import * as path from 'path';
 
-import { UserList, KeyList, IPair, IUser } from '../src/common';
+import { UserList, KeyList, IPair, IUser, splitParse } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
@@ -14,7 +14,6 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
 const KEYS_DIR = path.join(__dirname, '..', 'keys');
-const LAST_INDEX_FILE = path.join(KEYS_DIR, 'last-index.json');
 const USER_FILE = path.join(KEYS_DIR, 'users.json');
 
 async function delay(ms: number): Promise<void> {
@@ -93,20 +92,10 @@ async function githubRequest<T>(path: string, query: string = '')
   return [ await res.json(), next ];
 }
 
-async function* githubUsers(): AsyncIterableIterator<UserList> {
-  let lastId = 0;
-
-  try {
-    const rawIndex = await fs.promises.readFile(LAST_INDEX_FILE)
-    lastId = parseInt(rawIndex.toString(), 10);
-  } catch (e) {
-    debug('No index file, using 0');
-  }
-
+async function* githubUsers(lastId: number): AsyncIterableIterator<UserList> {
   for (;;) {
     const [ list, next ] =
         await githubRequest<UserList>('/users', `since=${lastId}`);
-    await fs.promises.writeFile(LAST_INDEX_FILE, lastId.toString());
 
     if (!next) {
       throw new Error('Expected next page link!');
@@ -128,8 +117,8 @@ async function githubKeys(user: IUser) {
   return keys;
 }
 
-async function* fetchAll(): AsyncIterableIterator<IPair> {
-  for await (const userPage of githubUsers()) {
+async function* fetchAll(lastId: number): AsyncIterableIterator<IPair> {
+  for await (const userPage of githubUsers(lastId)) {
     const pairs = await Promise.all(userPage.map(async (user) => {
       const keys = await githubKeys(user);
 
@@ -151,9 +140,22 @@ async function* fetchAll(): AsyncIterableIterator<IPair> {
   }
 }
 
+async function getLastId() {
+  const input = fs.createReadStream(USER_FILE);
+  let lastId = 0;
+  for await (const pair of splitParse<IPair>(input, (v) => JSON.parse(v))) {
+    lastId = Math.max(lastId, pair.user.id);
+  }
+  input.close();
+  return lastId;
+}
+
 async function main() {
+  const lastId = await getLastId();
+  debug(`restarting from ${lastId}`);
+
   const out = fs.createWriteStream(USER_FILE, { flags: 'a+' });
-  for await (const pair of fetchAll()) {
+  for await (const pair of fetchAll(lastId)) {
     const fileName = path.join(KEYS_DIR, pair.user.login + '.json');
     out.write('\n' + JSON.stringify(pair));
   }
