@@ -133,7 +133,16 @@ async function* fetchAll(): AsyncIterableIterator<IPair> {
     const pairs = await Promise.all(userPage.map(async (user) => {
       const keys = await githubKeys(user);
 
-      return { user, keys };
+      return {
+        user: {
+          login: user.login,
+          id: user.id,
+          avatar_url: user.avatar_url,
+          gravatar_id: user.gravatar_id,
+          email: user.email,
+        },
+        keys,
+      };
     }));
 
     for (const pair of pairs) {
