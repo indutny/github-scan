@@ -19,6 +19,7 @@ const KEYS_DIR = path.join(__dirname, '..', 'keys');
 const KEYS_FILE = path.join(KEYS_DIR, 'keys.json');
 
 const PAGE_SIZE = 100;
+const PARALLEL = 5;
 
 interface IPair {
   readonly user: {
@@ -175,53 +176,74 @@ async function getLastId() {
   return lastId;
 }
 
-function range(start: number, end: number) {
-  const res: number[] = [];
-  for (let i = start; i <= end; i++) {
-    res.push(i);
+async function* fetchUsers(start: number,
+                           pageSize: number = PAGE_SIZE,
+                           parallel: number = PARALLEL)
+    : AsyncIterableIterator<IGraphQLUser> {
+  function fillRange(start: number, end: number) {
+    const res: number[] = [];
+    for (let i = start; i < end; i++) {
+      res.push(i);
+    }
+    return res;
   }
-  return res;
+
+  for (;;) {
+    const ranges: ReadonlyArray<number>[] = [];
+    for (let i = 0; i < parallel; i++) {
+      const end = start + pageSize;
+      ranges.push(fillRange(start, end));
+      start = end;
+    }
+
+    const pages = await Promise.all(ranges.map(async (ids) => {
+      return await graphql(ids);
+    }));
+
+    for (const page of pages) {
+      for (const maybeUser of page.nodes) {
+        if (maybeUser && maybeUser.hasOwnProperty('id')) {
+          yield maybeUser;
+        }
+      }
+    }
+  }
 }
 
 async function main() {
   const startId = (await getLastId()) + 1;
   debug(`starting from ${startId}`);
 
-  const out = fs.createWriteStream(KEYS_FILE);
-
-  for (let start = startId; ; start += PAGE_SIZE) {
-    const res = await graphql(range(start, start + PAGE_SIZE - 1));
-
-    for (const user of res.nodes) {
-      if (!user || !user.hasOwnProperty('id')) {
-        continue;
-      }
-      debug(`got user with login "${user.login}"`);
-
-      const nodeId = Buffer.from(user.id, 'base64').toString();
-      const match = nodeId.match(/^04:User(\d+)$/);
-      if (!match) {
-        continue;
-      }
-
-      const id = parseInt(match[1], 10);
-
-      const format = {
-        user: {
-          id,
-          login: user.login,
-          name: user.name,
-          email: user.email,
-          company: user.company,
-          avatarUrl: user.avatarUrl,
-          bio: user.bio,
-          location: user.location,
-          websiteUrl: user.websiteUrl,
-        },
-        keys: user.publicKeys.nodes.map((key) => key.key),
-      };
-      out.write(`\n${JSON.stringify(format)}`);
+  const out = fs.createWriteStream(KEYS_FILE, { flags: 'a+' });
+  for await (const user of fetchUsers(startId)) {
+    if (!user || !user.hasOwnProperty('id')) {
+      continue;
     }
+    debug(`got user with login "${user.login}"`);
+
+    const nodeId = Buffer.from(user.id, 'base64').toString();
+    const match = nodeId.match(/^04:User(\d+)$/);
+    if (!match) {
+      continue;
+    }
+
+    const id = parseInt(match[1], 10);
+
+    const format = {
+      user: {
+        id,
+        login: user.login,
+        name: user.name,
+        email: user.email,
+        company: user.company,
+        avatarUrl: user.avatarUrl,
+        bio: user.bio,
+        location: user.location,
+        websiteUrl: user.websiteUrl,
+      },
+      keys: user.publicKeys.nodes.map((key) => key.key),
+    };
+    out.write(`\n${JSON.stringify(format)}`);
   }
 }
 
