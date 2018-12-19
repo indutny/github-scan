@@ -115,7 +115,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
   // Rate-limiting
   if (res.status === 403) {
     if (res.headers.has('retry-after')) {
-      const secs = parseInt(res.headers.get('retry-after'), 10);
+      const secs = parseInt(res.headers.get('retry-after')!, 10);
       debug(`got retry-after header, retrying after ${secs}`);
       await delay(secs * 1000);
       return await graphql(ids);
