@@ -114,6 +114,15 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
 
   // Rate-limiting
   if (res.status === 403) {
+    if (!res.headers.has('x-ratelimit-remaining')) {
+      debug('403, but no rate limit information');
+      debug(`status text ${res.statusText}`);
+      debug('raw headers %j', res.headers.raw());
+      debug('Retrying in 5 secs');
+      await delay(5000);
+      return await graphql(ids);
+    }
+
     const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
     if (remaining > 0) {
       debug(`403, but still have ${remaining} reqs left`);
