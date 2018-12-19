@@ -19,7 +19,7 @@ const KEYS_DIR = path.join(__dirname, '..', 'keys');
 const KEYS_FILE = path.join(KEYS_DIR, 'keys.json');
 
 const PAGE_SIZE = 100;
-const PARALLEL = 5;
+const PARALLEL = 2;
 
 interface IPair {
   readonly user: {
