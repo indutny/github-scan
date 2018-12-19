@@ -117,6 +117,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
 
   if (hasRateLimitInfo) {
     const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
+    debug(`remaining requests ${remaining}`);
 
     if (remaining <= 0) {
       const resetHeader = res.headers.get('x-ratelimit-reset')!;
