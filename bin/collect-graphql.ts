@@ -19,7 +19,7 @@ const KEYS_DIR = path.join(__dirname, '..', 'keys');
 const KEYS_FILE = path.join(KEYS_DIR, 'keys.json');
 
 const PAGE_SIZE = 100;
-const PARALLEL = 2;
+const PARALLEL = 1;
 
 interface IPair {
   readonly user: {
@@ -114,6 +114,13 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
 
   // Rate-limiting
   if (res.status === 403) {
+    if (req.headers.has('retry-after')) {
+      const secs = parseInt(req.headers.get('retry-after'), 10);
+      debug(`got retry-after header, retrying after ${secs}`);
+      await delay(secs * 1000);
+      return await graphql(ids);
+    }
+
     if (!res.headers.has('x-ratelimit-remaining')) {
       debug('403, but no rate limit information');
       debug(`status text ${res.statusText}`);
