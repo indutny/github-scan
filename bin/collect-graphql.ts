@@ -112,6 +112,27 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
     return await graphql(ids);
   }
 
+  const hasRateLimitInfo = res.headers.has('x-ratelimit-remaining') &&
+    res.headers.has('x-ratelimit-reset');
+
+  if (hasRateLimitInfo) {
+    const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
+
+    if (remaining <= 0) {
+      const resetHeader = res.headers.get('x-ratelimit-reset')!;
+      const resetAt = parseInt(resetHeader, 10) * 1000;
+      debug(`rate limited until: ${new Date(resetAt)}`);
+
+      const timeout = Math.max(0, resetAt - Date.now());
+      debug(`retrying ids="${ids}" in ${(timeout / 1000) | 0} secs`);
+
+      // Add extra seconds to prevent immediate exhaustion
+      await delay(timeout + 10000);
+
+      return await graphql(ids);
+    }
+  }
+
   // Rate-limiting
   if (res.status === 403) {
     if (res.headers.has('retry-after')) {
@@ -121,7 +142,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
       return await graphql(ids);
     }
 
-    if (!res.headers.has('x-ratelimit-remaining')) {
+    if (!hasRateLimitInfo) {
       debug('403, but no rate limit information');
       debug(`status text ${res.statusText}`);
       debug('raw headers %j', res.headers.raw());
@@ -130,23 +151,9 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
       return await graphql(ids);
     }
 
-    const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
-    if (remaining > 0) {
-      debug(`403, but still have ${remaining} reqs left`);
-      debug('Retrying in 5 secs');
-      await delay(5000);
-      return await graphql(ids);
-    }
-
-    const resetAt = parseInt(res.headers.get('x-ratelimit-reset')!, 10) * 1000;
-    debug(`rate limited until: ${new Date(resetAt)}`);
-
-    const timeout = Math.max(0, resetAt - Date.now());
-    debug(`retrying ids="${ids}" in ${(timeout / 1000) | 0} secs`);
-
-    // Add extra seconds to prevent immediate exhaustion
-    await delay(timeout + 10000);
-
+    debug('403, but still have requests left');
+    debug('Retrying in 5 secs');
+    await delay(5000);
     return await graphql(ids);
   }
 
@@ -169,7 +176,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
 
   try {
     const json = await res.json();
-    if (!json.data.nodes || !Array.isArray(json.data.nodes)) {
+    if (!json.data || !json.data.nodes || !Array.isArray(json.data.nodes)) {
       debug('Unexpected JSON response: %j', json);
       throw new Error('Invalid JSON');
     }
