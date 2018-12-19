@@ -169,6 +169,10 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
 
   try {
     const json = await res.json();
+    if (!json.data.nodes || !Array.isArray(json.data.nodes)) {
+      debug('Unexpected JSON response: %j', json);
+      throw new Error('Invalid JSON');
+    }
     return json.data;
   } catch (e) {
     debug(e.message);
