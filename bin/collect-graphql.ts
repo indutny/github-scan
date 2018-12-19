@@ -164,7 +164,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
 
 async function getLastId() {
   if (!await promisify(fs.exists)(KEYS_FILE)) {
-    return 1;
+    return 0;
   }
 
   const input = fs.createReadStream(KEYS_FILE);
