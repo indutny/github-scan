@@ -196,7 +196,7 @@ async function main() {
       if (!user || !user.hasOwnProperty('id')) {
         continue;
       }
-      debug(`got user with logion "${user.login}"`);
+      debug(`got user with login "${user.login}"`);
 
       const nodeId = Buffer.from(user.id, 'base64').toString();
       const match = nodeId.match(/^04:User(\d+)$/);
