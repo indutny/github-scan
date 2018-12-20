@@ -16,7 +16,7 @@ const GITHUB_GRAPHQL = process.env.GITHUB_GRAPHQL ||
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 const KEYS_DIR = path.join(__dirname, '..', 'keys');
-const KEYS_FILE_RE = /^keys-(\d+)\.json$/g;
+const KEYS_FILE_RE = /^keys-(\d+)\.json$/;
 const KEYS_FILE_PREFIX = 'keys-';
 const KEYS_FILE_POSTFIX = '.json';
 const SPLIT_SIZE = 1024768;
@@ -288,8 +288,11 @@ async function main() {
     keysFile = path.join(KEYS_DIR, lastFile);
 
     const match = lastFile.match(KEYS_FILE_RE);
-    chunkId = parseInt(match![1], 10);
+    if (!match) {
+      throw new Error('Unexpected');
+    }
 
+    chunkId = parseInt(match[1], 10);
     debug(`found "${lastFile}" with chunkId ${chunkId}`);
   }
 
