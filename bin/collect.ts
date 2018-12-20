@@ -277,7 +277,7 @@ async function main() {
 
   let [ lastId, size ] = await getKeysFileStats(keysFile);
   const startId = lastId + 1;
-  debug(`resuming from ${startId}`);
+  debug(`resuming from ${startId}, size ${size}`);
 
   let out: fs.WriteStream | undefined;
   for await (const pair of fetchPairs(startId)) {
