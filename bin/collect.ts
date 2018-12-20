@@ -7,7 +7,9 @@ import * as path from 'path';
 import { Buffer } from 'buffer';
 import { promisify } from 'util';
 
-import { IPair, splitParse } from '../src/common';
+import {
+  IPair, splitParse, keysFileName, getKeysFiles, getKeysFileChunk,
+} from '../src/common';
 
 const debug = debugAPI('github-scan');
 
@@ -16,9 +18,6 @@ const GITHUB_GRAPHQL = process.env.GITHUB_GRAPHQL ||
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 const KEYS_DIR = path.join(__dirname, '..', 'keys');
-const KEYS_FILE_RE = /^keys-(\d+)\.json$/;
-const KEYS_FILE_PREFIX = 'keys-';
-const KEYS_FILE_POSTFIX = '.json';
 const SPLIT_SIZE = 1024768;
 
 const PAGE_SIZE = 100;
@@ -178,18 +177,6 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
   }
 }
 
-async function getKeysFileStats(keysFile: string) {
-  const input = fs.createReadStream(keysFile);
-  let lastId = 0;
-  let count = 0;
-  for await (const pair of splitParse<IPair>(input, (v) => JSON.parse(v))) {
-    lastId = Math.max(lastId, pair.user.id);
-    count++;
-  }
-  input.close();
-  return [ lastId, count ];
-}
-
 function formatUser(user: IGraphQLUser): IPair | false {
   const nodeId = Buffer.from(user.id, 'base64').toString();
   const match = nodeId.match(/^04:User(\d+)$/);
@@ -254,45 +241,37 @@ async function* fetchPairs(start: number,
   }
 }
 
-function keysFileName(chunkId: number) {
-  let chunk: string = chunkId.toString();
-
-  while (chunk.length !== 4) {
-    chunk = '0' + chunk;
+async function getKeysFileStats(keysFile: string) {
+  const input = fs.createReadStream(keysFile);
+  let lastId = 0;
+  let count = 0;
+  for await (const pair of splitParse<IPair>(input, (v) => JSON.parse(v))) {
+    lastId = Math.max(lastId, pair.user.id);
+    count++;
   }
-
-  return path.join(KEYS_DIR,
-    `${KEYS_FILE_PREFIX}${chunk}${KEYS_FILE_POSTFIX}`);
+  input.close();
+  return [ lastId, count ];
 }
 
 async function main() {
-  const dir = await fs.promises.readdir(KEYS_DIR);
-
-  const dirFiles = dir.filter((file) => {
-    return KEYS_FILE_RE.test(file);
-  }).sort();
+  const files = await getKeysFiles(KEYS_DIR);
 
   let keysFile: string;
   let chunkId: number;
 
-  if (dirFiles.length === 0) {
+  if (files.length === 0) {
     debug('no keys files, creating a new one');
 
     chunkId = 1;
-    keysFile = keysFileName(chunkId);
+    keysFile = path.join(KEYS_DIR, keysFileName(chunkId));
     await fs.promises.writeFile(keysFile, '');
 
   // Existing files - continue
   } else {
-    const lastFile = dirFiles[dirFiles.length - 1]!;
+    const lastFile = files[files.length - 1]!;
+
     keysFile = path.join(KEYS_DIR, lastFile);
-
-    const match = lastFile.match(KEYS_FILE_RE);
-    if (!match) {
-      throw new Error('Unexpected');
-    }
-
-    chunkId = parseInt(match[1], 10);
+    chunkId = getKeysFileChunk(lastFile);
     debug(`found "${lastFile}" with chunkId ${chunkId}`);
   }
 
@@ -305,7 +284,7 @@ async function main() {
     if (size === SPLIT_SIZE) {
       debug('keys file is full, creating new chunk');
       chunkId++;
-      keysFile = keysFileName(chunkId);
+      keysFile = path.join(KEYS_DIR, keysFileName(chunkId));
 
       if (out) {
         debug('ending previous stream');

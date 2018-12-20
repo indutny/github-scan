@@ -1,4 +1,9 @@
+import * as fs from 'fs';
 import { Readable } from 'stream';
+
+export const KEYS_FILE_RE = /^keys-(\d+)\.json$/;
+export const KEYS_FILE_PREFIX = 'keys-';
+export const KEYS_FILE_POSTFIX = '.json';
 
 export interface IPair {
   readonly user: {
@@ -40,4 +45,31 @@ export async function* splitParse<T>(stream: Readable,
   if (buffer) {
     yield parse(buffer);
   }
+}
+
+export function keysFileName(chunkId: number) {
+  let chunk: string = chunkId.toString();
+
+  while (chunk.length !== 4) {
+    chunk = '0' + chunk;
+  }
+
+  return `${KEYS_FILE_PREFIX}${chunk}${KEYS_FILE_POSTFIX}`;
+}
+
+export function getKeysFileChunk(file: string): number {
+  const match = file.match(KEYS_FILE_RE);
+  if (!match) {
+    throw new Error('Unexpected');
+  }
+
+  return parseInt(match[1], 10);
+}
+
+export async function getKeysFiles(dir: string) {
+  const files = await fs.promises.readdir(dir);
+
+  return files.filter((file) => {
+    return KEYS_FILE_RE.test(file);
+  }).sort();
 }
