@@ -2,15 +2,15 @@
 import * as debugAPI from 'debug';
 import { Buffer } from 'buffer';
 import * as fs from 'fs';
+import * as path from 'path';
 
-import { splitParse, IPair } from '../src/common';
+import { splitParse, IPair, getKeysFiles } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
-const KEYS_FILE = process.argv[2];
+const KEYS_DIR = process.argv[2];
 
 async function main() {
-  const stream = fs.createReadStream(KEYS_FILE);
 
   let stats = {
     users: {
@@ -23,24 +23,29 @@ async function main() {
     }
   };
 
-  for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
-    stats.users.total++;
-    if (pair.keys.length === 0) {
-      continue;
-    }
-
-    stats.users.withKeys++;
-    for (const key of pair.keys) {
-      stats.keys.total++;
-
-      const [ type ] = key.split(' ', 1);
-      let categoryCount: number;
-      if (stats.keys.categories.has(type)) {
-        categoryCount = stats.keys.categories.get(type)! + 1;
-      } else {
-        categoryCount = 1;
+  const files = await getKeysFiles(KEYS_DIR);
+  for (const file of files) {
+    debug(`processing "${file}"`);
+    const stream = fs.createReadStream(path.join(KEYS_DIR, file));
+    for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
+      stats.users.total++;
+      if (pair.keys.length === 0) {
+        continue;
       }
-      stats.keys.categories.set(type, categoryCount);
+
+      stats.users.withKeys++;
+      for (const key of pair.keys) {
+        stats.keys.total++;
+
+        const [ type ] = key.split(' ', 1);
+        let categoryCount: number;
+        if (stats.keys.categories.has(type)) {
+          categoryCount = stats.keys.categories.get(type)! + 1;
+        } else {
+          categoryCount = 1;
+        }
+        stats.keys.categories.set(type, categoryCount);
+      }
     }
   }
 
