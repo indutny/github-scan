@@ -44,7 +44,26 @@ async function main() {
     }
   }
 
-  console.log(stats);
+  const percentWithKeys = (stats.users.withKeys * 100) / stats.users.total;
+  const keysPerUser = stats.keys.total / stats.users.withKeys;
+
+  console.log('Total users: %d', stats.users.total);
+  console.log('Percent of users with SSH keys: %s %',
+    percentWithKeys.toFixed(2));
+  console.log('Mean number of keys per user with SSH keys: %s',
+    keysPerUser.toFixed(2));
+
+  console.log('Key statistics:');
+  for (const [ category, count ] of stats.keys.categories.entries()) {
+    const percent = (count * 100) / stats.keys.total;
+
+    // Ignore outliers
+    if (percent < 0.01) {
+      continue;
+    }
+
+    console.log('  %s => %s %', category, percent.toFixed(2));
+  }
 }
 
 main().catch((e) => {
