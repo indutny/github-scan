@@ -1,24 +1,18 @@
 import { Readable } from 'stream';
 
-export interface IKey {
-  readonly id: number;
-  readonly key: string;
-}
-
-export interface IUser {
-  readonly login: string;
-  readonly id: number;
-  readonly avatar_url: string;
-  readonly gravatar_id: string;
-  readonly email: string;
-}
-
-export type UserList = ReadonlyArray<IUser>;
-export type KeyList = ReadonlyArray<IKey>;
-
 export interface IPair {
-  readonly user: IUser;
-  readonly keys: KeyList;
+  readonly user: {
+    readonly id: number;
+    readonly login: string;
+    readonly name: string | null;
+    readonly email: string | null;
+    readonly company: string | null;
+    readonly avatarUrl: string;
+    readonly bio: string | null;
+    readonly location: string | null;
+    readonly websiteUrl: string | null;
+  };
+  readonly keys: ReadonlyArray<string>;
 }
 
 export async function* splitParse<T>(stream: Readable,

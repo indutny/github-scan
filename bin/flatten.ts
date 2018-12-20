@@ -1,8 +1,11 @@
 #!/usr/bin/env npx ts-node
+import * as debugAPI from 'debug';
 import { Buffer } from 'buffer';
 import * as fs from 'fs';
 
 import { splitParse, IPair } from '../src/common';
+
+const debug = debugAPI('github-scan');
 
 const KEYS_FILE = process.argv[2];
 const OUT_USER_MAP = process.argv[3];
@@ -21,12 +24,14 @@ function parseSSHKey(key: string): string | false {
   let parts: Buffer[] = [];
   while (raw.length !== 0) {
     if (raw.length < 4) {
-      throw new Error('Not enough bytes in the key for 4-byte len');
+      debug('not enough bytes in the key for 4-byte len');
+      return false;
     }
 
     const len = raw.readUInt32BE(0);
     if (raw.length < 4 + len) {
-      throw new Error('Not enough bytes in the key for the data');
+      debug('not enough bytes in the key for the data');
+      return false;
     }
 
     parts.push(raw.slice(4, 4 + len));
@@ -34,7 +39,8 @@ function parseSSHKey(key: string): string | false {
   }
 
   if (parts.length !== 3) {
-    throw new Error('Invalid RSA key');
+    debug('invalid RSA key');
+    return false;
   }
 
   return parts[2].toString('hex');
@@ -51,7 +57,7 @@ async function main() {
   for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
     const keyIds: number[] = [];
     for (const key of pair.keys) {
-      const mod = parseSSHKey(key.key);
+      const mod = parseSSHKey(key);
       if (!mod) {
         continue;
       }

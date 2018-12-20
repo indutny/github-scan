@@ -4,17 +4,70 @@ import * as fs from 'fs';
 import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
 import * as path from 'path';
+import { Buffer } from 'buffer';
+import { promisify } from 'util';
 
-import { UserList, KeyList, IPair, IUser, splitParse } from '../src/common';
+import { IPair, splitParse } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
-const GITHUB_API = process.env.GITHUB_API || 'https://api.github.com';
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const GITHUB_GRAPHQL = process.env.GITHUB_GRAPHQL ||
+  'https://api.github.com/graphql';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 const KEYS_DIR = path.join(__dirname, '..', 'keys');
-const USER_FILE = path.join(KEYS_DIR, 'users.json');
+const KEYS_FILE = path.join(KEYS_DIR, 'keys.json');
+
+const PAGE_SIZE = 100;
+const PARALLEL = 1;
+
+interface IGraphQLSSHKey {
+  readonly key: string;
+}
+
+interface IGraphQLUser {
+  readonly id: string;
+  readonly login: string;
+  readonly name: string | null;
+  readonly email: string | null;
+  readonly company: string | null;
+  readonly avatarUrl: string;
+  readonly bio: string | null;
+  readonly location: string | null;
+  readonly websiteUrl: string | null;
+  readonly publicKeys: { readonly nodes: ReadonlyArray<IGraphQLSSHKey> };
+}
+
+interface IGraphQLResponse {
+  readonly nodes: ReadonlyArray<IGraphQLUser | null>;
+}
+
+function buildQuery(ids: ReadonlyArray<number>) {
+  const base64IDs = ids.map((id) => {
+    return Buffer.from(`04:User${id}`).toString('base64');
+  });
+
+  return `query {
+    nodes(ids: ${JSON.stringify(base64IDs)}) {
+      ... on User {
+        id
+        login
+        name
+        email
+        company
+        avatarUrl(size: 256)
+        bio
+        location
+        websiteUrl
+        publicKeys(first: 100) {
+          nodes {
+            key
+          }
+        }
+      }
+    }
+  }`;
+}
 
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -22,61 +75,79 @@ async function delay(ms: number): Promise<void> {
   });
 }
 
-async function githubRequest<T>(path: string, query: string = '')
-    : Promise<[T, false | string]> {
-  let url = `${GITHUB_API}${path}`;
-  if (GITHUB_CLIENT_ID) {
-    url += `?client_id=${GITHUB_CLIENT_ID}`;
-    url += `&client_secret=${GITHUB_CLIENT_SECRET}`;
-    if (query) {
-      url += `&${query}`;
-    }
-  } else if (query) {
-    url += `?${query}`;
-  }
-
-  debug(`request ${path}?${query}`);
+async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
+  debug(`request users starting from ids "${ids}"`);
 
   let res: Response;
-  for (;;) {
-    try {
-      res = await fetch(url);
-    } catch (e) {
-      debug(e.message);
-      debug(`retrying ${url} in 5 secs`);
-      await delay(5000);
-      continue;
+  try {
+    res = await fetch(GITHUB_GRAPHQL, {
+      method: 'POST',
+      headers: {
+        'authorization': `bearer ${GITHUB_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: buildQuery(ids),
+      }),
+    });
+  } catch (e) {
+    debug(e.message);
+    debug(`retrying request in 5 secs`);
+    await delay(5000);
+    return await graphql(ids);
+  }
+
+  const hasRateLimitInfo = res.headers.has('x-ratelimit-remaining') &&
+    res.headers.has('x-ratelimit-reset');
+
+  if (hasRateLimitInfo) {
+    const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
+    debug(`remaining requests ${remaining}`);
+
+    if (remaining <= 0) {
+      const resetHeader = res.headers.get('x-ratelimit-reset')!;
+      const resetAt = parseInt(resetHeader, 10) * 1000;
+      debug(`rate limited until: ${new Date(resetAt)}`);
+
+      const timeout = Math.max(0, resetAt - Date.now());
+      debug(`retrying ids="${ids}" in ${(timeout / 1000) | 0} secs`);
+
+      // Add extra seconds to prevent immediate exhaustion
+      await delay(timeout + 10000);
+
+      return await graphql(ids);
     }
-    break;
   }
 
   // Rate-limiting
   if (res.status === 403) {
-    const remaining = parseInt(res.headers.get('x-ratelimit-remaining')!, 10);
-    if (remaining > 0) {
-      debug(`403, but still have ${remaining} reqs left`);
-      debug('Retrying in 5 secs');
-      await delay(5000);
-      return await githubRequest(path, query);
+    if (res.headers.has('retry-after')) {
+      const secs = parseInt(res.headers.get('retry-after')!, 10);
+      debug(`got retry-after header, retrying after ${secs}`);
+      await delay(secs * 1000);
+      return await graphql(ids);
     }
 
-    const resetAt = parseInt(res.headers.get('x-ratelimit-reset')!, 10) * 1000;
-    debug(`rate limited until: ${new Date(resetAt)}`);
+    if (!hasRateLimitInfo) {
+      debug('403, but no rate limit information');
+      debug(`status text ${res.statusText}`);
+      debug('raw headers %j', res.headers.raw());
+      debug('Retrying in 5 secs');
+      await delay(5000);
+      return await graphql(ids);
+    }
 
-    const timeout = Math.max(0, resetAt - Date.now());
-    debug(`retrying ${path}?${query} in ${(timeout / 1000) | 0} secs`);
-
-    // Add extra seconds to prevent immediate exhaustion
-    await delay(timeout + 10000);
-
-    return await githubRequest(path, query);
+    debug('403, but still have requests left');
+    debug('Retrying in 5 secs');
+    await delay(5000);
+    return await graphql(ids);
   }
 
   if (res.status !== 200) {
     debug(`Unexpected error code: ${res.status}`);
     debug('Retrying in 5 secs');
     await delay(5000);
-    return await githubRequest(path, query);
+    return await graphql(ids);
   }
 
   const link = res.headers.get('link');
@@ -89,59 +160,27 @@ async function githubRequest<T>(path: string, query: string = '')
     }
   }
 
-  return [ await res.json(), next ];
-}
-
-async function* githubUsers(lastId: number): AsyncIterableIterator<UserList> {
-  for (;;) {
-    const [ list, next ] =
-        await githubRequest<UserList>('/users', `since=${lastId}`);
-
-    if (!next) {
-      throw new Error('Expected next page link!');
+  try {
+    const json = await res.json();
+    if (!json.data || !json.data.nodes || !Array.isArray(json.data.nodes)) {
+      debug('Unexpected JSON response: %j', json);
+      throw new Error('Invalid JSON');
     }
-
-    const match = next.match(/\/users\?(?:.*)since=(\d+)/);
-    if (!match) {
-      throw new Error(`Invalid link header: ${next}`);
-    }
-
-    lastId = parseInt(match[1]);
-
-    yield list;
-  }
-}
-
-async function githubKeys(user: IUser) {
-  const [ keys, _ ] = await githubRequest<KeyList>(`/users/${user.login}/keys`);
-  return keys;
-}
-
-async function* fetchAll(lastId: number): AsyncIterableIterator<IPair> {
-  for await (const userPage of githubUsers(lastId)) {
-    const pairs = await Promise.all(userPage.map(async (user) => {
-      const keys = await githubKeys(user);
-
-      return {
-        user: {
-          login: user.login,
-          id: user.id,
-          avatar_url: user.avatar_url,
-          gravatar_id: user.gravatar_id,
-          email: user.email,
-        },
-        keys,
-      };
-    }));
-
-    for (const pair of pairs) {
-      yield pair;
-    }
+    return json.data;
+  } catch (e) {
+    debug(e.message);
+    debug(`retrying request in 5 secs`);
+    await delay(5000);
+    return await graphql(ids);
   }
 }
 
 async function getLastId() {
-  const input = fs.createReadStream(USER_FILE);
+  if (!await promisify(fs.exists)(KEYS_FILE)) {
+    return 0;
+  }
+
+  const input = fs.createReadStream(KEYS_FILE);
   let lastId = 0;
   for await (const pair of splitParse<IPair>(input, (v) => JSON.parse(v))) {
     lastId = Math.max(lastId, pair.user.id);
@@ -150,14 +189,74 @@ async function getLastId() {
   return lastId;
 }
 
-async function main() {
-  const lastId = await getLastId();
-  debug(`restarting from ${lastId}`);
+async function* fetchUsers(start: number,
+                           pageSize: number = PAGE_SIZE,
+                           parallel: number = PARALLEL)
+    : AsyncIterableIterator<IGraphQLUser> {
+  function fillRange(start: number, end: number) {
+    const res: number[] = [];
+    for (let i = start; i < end; i++) {
+      res.push(i);
+    }
+    return res;
+  }
 
-  const out = fs.createWriteStream(USER_FILE, { flags: 'a+' });
-  for await (const pair of fetchAll(lastId)) {
-    const fileName = path.join(KEYS_DIR, pair.user.login + '.json');
-    out.write('\n' + JSON.stringify(pair));
+  for (;;) {
+    const ranges: ReadonlyArray<number>[] = [];
+    for (let i = 0; i < parallel; i++) {
+      const end = start + pageSize;
+      ranges.push(fillRange(start, end));
+      start = end;
+    }
+
+    const pages = await Promise.all(ranges.map(async (ids) => {
+      return await graphql(ids);
+    }));
+
+    for (const page of pages) {
+      for (const maybeUser of page.nodes) {
+        if (maybeUser && maybeUser.hasOwnProperty('id')) {
+          yield maybeUser;
+        }
+      }
+    }
+  }
+}
+
+async function main() {
+  const startId = (await getLastId()) + 1;
+  debug(`starting from ${startId}`);
+
+  const out = fs.createWriteStream(KEYS_FILE, { flags: 'a+' });
+  for await (const user of fetchUsers(startId)) {
+    if (!user || !user.hasOwnProperty('id')) {
+      continue;
+    }
+    debug(`got user with login "${user.login}"`);
+
+    const nodeId = Buffer.from(user.id, 'base64').toString();
+    const match = nodeId.match(/^04:User(\d+)$/);
+    if (!match) {
+      continue;
+    }
+
+    const id = parseInt(match[1], 10);
+
+    const format = {
+      user: {
+        id,
+        login: user.login,
+        name: user.name,
+        email: user.email,
+        company: user.company,
+        avatarUrl: user.avatarUrl,
+        bio: user.bio,
+        location: user.location,
+        websiteUrl: user.websiteUrl,
+      },
+      keys: user.publicKeys.nodes.map((key) => key.key),
+    };
+    out.write(`\n${JSON.stringify(format)}`);
   }
 }
 
