@@ -255,8 +255,14 @@ async function* fetchPairs(start: number,
 }
 
 function keysFileName(chunkId: number) {
+  let chunk: string = chunkId.toString();
+
+  while (chunk.length !== 4) {
+    chunk = '0' + chunk;
+  }
+
   return path.join(KEYS_DIR,
-    `${KEYS_FILE_PREFIX}${chunkId}${KEYS_FILE_POSTFIX}`);
+    `${KEYS_FILE_PREFIX}${chunk}${KEYS_FILE_POSTFIX}`);
 }
 
 async function main() {
