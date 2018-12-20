@@ -2,14 +2,15 @@
 import * as debugAPI from 'debug';
 import { Buffer } from 'buffer';
 import * as fs from 'fs';
+import * as path from 'path';
+import { BloomFilter } from 'bloomfilter';
 
-import { splitParse, IPair } from '../src/common';
+import { splitParse, IPair, getKeysFiles } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
-const KEYS_FILE = process.argv[2];
-const OUT_USER_MAP = process.argv[3];
-const OUT_KEY_LIST = process.argv[4];
+const KEYS_DIR = process.argv[2];
+const OUT_KEY_LIST = process.argv[3];
 
 const WHITESPACE = /\s+/g;
 
@@ -46,14 +47,8 @@ function parseSSHKey(key: string): string | false {
   return parts[2].toString('hex');
 }
 
-async function main() {
-  const stream = fs.createReadStream(KEYS_FILE);
-  const out = {
-    userMap: fs.createWriteStream(OUT_USER_MAP),
-    keyList: fs.createWriteStream(OUT_KEY_LIST),
-  };
-
-  const keyMap: Map<string, number> = new Map();
+async function* readKeys(file: string): AsyncIterableIterator<string> {
+  const stream = fs.createReadStream(file);
   for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
     const keyIds: number[] = [];
     for (const key of pair.keys) {
@@ -62,23 +57,32 @@ async function main() {
         continue;
       }
 
-      let keyId: number;
-      if (keyMap.has(mod)) {
-        keyId = keyMap.get(mod)!;
-      } else {
-        keyId = keyMap.size;
-        keyMap.set(mod, keyId);
-        out.keyList.write(mod + '\n');
-      }
-      keyIds.push(keyId);
+      yield mod;
     }
-    if (keyIds.length === 0) {
-      continue;
-    }
-    out.userMap.write(`${pair.user.login},${keyIds.join(':')}\n`);
   }
-  out.keyList.end();
-  out.userMap.end();
+}
+
+async function main() {
+  const files = await getKeysFiles(KEYS_DIR);
+  const out = fs.createWriteStream(OUT_KEY_LIST);
+
+  // Calculated at: https://hur.st/bloomfilter/?n=10000000&p=1e-9&m=&k=
+  //
+  // 1e6 elements with 1e-9 probability of false positive
+  const seen = new BloomFilter(431327627, 30);
+  for (const file of files) {
+    debug(`reading keys from "${file}"`);
+    for await (const key of readKeys(path.join(KEYS_DIR, file))) {
+      if (seen.test(key)) {
+        debug('duplicate modulo');
+        continue;
+      }
+
+      seen.add(key);
+      out.write(key + '\n');
+    }
+  }
+  out.end();
 }
 
 main().catch((e) => {
