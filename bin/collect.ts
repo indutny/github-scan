@@ -278,7 +278,7 @@ async function main() {
   if (dirFiles.length === 0) {
     debug('no keys files, creating a new one');
 
-    chunkId = 0;
+    chunkId = 1;
     keysFile = keysFileName(chunkId);
     await fs.promises.writeFile(keysFile, '');
 
