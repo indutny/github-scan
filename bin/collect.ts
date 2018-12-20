@@ -16,7 +16,10 @@ const GITHUB_GRAPHQL = process.env.GITHUB_GRAPHQL ||
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 const KEYS_DIR = path.join(__dirname, '..', 'keys');
-const KEYS_FILE = path.join(KEYS_DIR, 'keys.json');
+const KEYS_FILE_RE = /^keys-(\d+)\.json$/g;
+const KEYS_FILE_PREFIX = 'keys-';
+const KEYS_FILE_POSTFIX = '.json';
+const SPLIT_SIZE = 1024768;
 
 const PAGE_SIZE = 100;
 const PARALLEL = 1;
@@ -175,24 +178,47 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
   }
 }
 
-async function getLastId() {
-  if (!await promisify(fs.exists)(KEYS_FILE)) {
-    return 0;
-  }
-
-  const input = fs.createReadStream(KEYS_FILE);
+async function getKeysFileStats(keysFile: string) {
+  const input = fs.createReadStream(keysFile);
   let lastId = 0;
+  let count = 0;
   for await (const pair of splitParse<IPair>(input, (v) => JSON.parse(v))) {
     lastId = Math.max(lastId, pair.user.id);
+    count++;
   }
   input.close();
-  return lastId;
+  return [ lastId, count ];
 }
 
-async function* fetchUsers(start: number,
+function formatUser(user: IGraphQLUser): IPair | false {
+  const nodeId = Buffer.from(user.id, 'base64').toString();
+  const match = nodeId.match(/^04:User(\d+)$/);
+  if (!match) {
+    return false;
+  }
+
+  const id = parseInt(match[1], 10);
+
+  return {
+    user: {
+      id,
+      login: user.login,
+      name: user.name,
+      email: user.email,
+      company: user.company,
+      avatarUrl: user.avatarUrl,
+      bio: user.bio,
+      location: user.location,
+      websiteUrl: user.websiteUrl,
+    },
+    keys: user.publicKeys.nodes.map((key) => key.key),
+  };
+}
+
+async function* fetchPairs(start: number,
                            pageSize: number = PAGE_SIZE,
                            parallel: number = PARALLEL)
-    : AsyncIterableIterator<IGraphQLUser> {
+    : AsyncIterableIterator<IPair> {
   function fillRange(start: number, end: number) {
     const res: number[] = [];
     for (let i = start; i < end; i++) {
@@ -215,51 +241,89 @@ async function* fetchUsers(start: number,
 
     for (const page of pages) {
       for (const maybeUser of page.nodes) {
-        if (maybeUser && maybeUser.hasOwnProperty('id')) {
-          yield maybeUser;
+        if (!(maybeUser && maybeUser.hasOwnProperty('id'))) {
+          continue;
+        }
+
+        const pair = formatUser(maybeUser);
+        if (pair !== false) {
+          yield pair;
         }
       }
     }
   }
 }
 
+function keysFileName(chunkId: number) {
+  return path.join(KEYS_DIR,
+    `${KEYS_FILE_PREFIX}${chunkId}${KEYS_FILE_POSTFIX}`);
+}
+
 async function main() {
-  const startId = (await getLastId()) + 1;
-  debug(`starting from ${startId}`);
+  const dir = await fs.promises.readdir(KEYS_DIR);
 
-  const out = fs.createWriteStream(KEYS_FILE, { flags: 'a+' });
-  for await (const user of fetchUsers(startId)) {
-    if (!user || !user.hasOwnProperty('id')) {
-      continue;
+  const dirFiles = dir.filter((file) => {
+    return KEYS_FILE_RE.test(file);
+  }).sort();
+
+  let keysFile: string;
+  let chunkId: number;
+
+  if (dirFiles.length === 0) {
+    debug('no keys files, creating a new one');
+
+    chunkId = 0;
+    keysFile = keysFileName(chunkId);
+    await fs.promises.writeFile(keysFile, '');
+
+  // Existing files - continue
+  } else {
+    const lastFile = dirFiles[dirFiles.length - 1]!;
+    keysFile = path.join(KEYS_DIR, lastFile);
+
+    const match = lastFile.match(KEYS_FILE_RE);
+    chunkId = parseInt(match![1], 10);
+
+    debug(`found "${lastFile}" with chunkId ${chunkId}`);
+  }
+
+  let [ lastId, size ] = await getKeysFileStats(keysFile);
+  const startId = lastId + 1;
+  debug(`resuming from ${startId}`);
+
+  let out: fs.WriteStream | undefined;
+  for await (const pair of fetchPairs(startId)) {
+    if (size === SPLIT_SIZE) {
+      debug('keys file is full, creating new chunk');
+      chunkId++;
+      keysFile = keysFileName(chunkId);
+
+      if (out) {
+        debug('ending previous stream');
+        out.end();
+      }
+      out = undefined;
+
+      size = 0;
     }
-    debug(`got user with login "${user.login}"`);
 
-    const nodeId = Buffer.from(user.id, 'base64').toString();
-    const match = nodeId.match(/^04:User(\d+)$/);
-    if (!match) {
-      continue;
+    if (!out) {
+      debug(`opening write stream for "${keysFile}"`);
+      out = fs.createWriteStream(keysFile, { flags: 'a+' });
     }
 
-    const id = parseInt(match[1], 10);
+    debug(`got user with login "${pair.user.login}"`);
+    out!.write(`\n${JSON.stringify(pair)}`);
+    size++;
+  }
 
-    const format = {
-      user: {
-        id,
-        login: user.login,
-        name: user.name,
-        email: user.email,
-        company: user.company,
-        avatarUrl: user.avatarUrl,
-        bio: user.bio,
-        location: user.location,
-        websiteUrl: user.websiteUrl,
-      },
-      keys: user.publicKeys.nodes.map((key) => key.key),
-    };
-    out.write(`\n${JSON.stringify(format)}`);
+  debug('end');
+  if (out) {
+    out.end();
   }
 }
 
 main().catch((e) => {
-  console.log(e);
+  console.error(e.stack);
+  process.exit(1);
 });
