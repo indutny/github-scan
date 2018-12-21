@@ -109,6 +109,12 @@ export function parseSSHRSAKey(key: string): string | false {
     return false;
   }
 
-  return parts[2].toString('hex');
+  let rawKey = parts[2];
+
+  // Skip leading zero
+  if (rawKey[0] === 0) {
+    rawKey = rawKey.slice(1);
+  }
+  return rawKey.toString('hex');
 }
 

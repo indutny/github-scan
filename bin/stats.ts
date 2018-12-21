@@ -10,14 +10,6 @@ const debug = debugAPI('github-scan');
 
 const KEYS_DIR = process.argv[2];
 
-function nextPowerOfTwo(value: number): number {
-  let res = 1;
-  while (res < value) {
-    res <<= 1;
-  }
-  return res;
-}
-
 async function main() {
   function countMap<K>(map: Map<K, number>, key: K) {
     let value: number;
@@ -79,8 +71,7 @@ async function main() {
 
         const rsa = parseSSHRSAKey(key);
         if (rsa) {
-          const moduloBits = nextPowerOfTwo(rsa.length * 4);
-          countMap(stats.keys.rsaSize, moduloBits);
+          countMap(stats.keys.rsaSize, rsa.length * 4);
         }
       }
     }
