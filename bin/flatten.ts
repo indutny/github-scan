@@ -5,54 +5,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BloomFilter } from 'bloomfilter';
 
-import { splitParse, IPair, getKeysFiles } from '../src/common';
+import { splitParse, IPair, getKeysFiles, parseSSHRSAKey } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
 const KEYS_DIR = process.argv[2];
 const OUT_KEY_LIST = process.argv[3];
 
-const WHITESPACE = /\s+/g;
-
-function parseSSHKey(key: string): string | false {
-  if (!key.startsWith('ssh-rsa ')) {
-    return false;
-  }
-
-  const [ _, base64 ] = key.split(WHITESPACE, 2);
-  let raw = Buffer.from(base64, 'base64');
-
-  let parts: Buffer[] = [];
-  while (raw.length !== 0) {
-    if (raw.length < 4) {
-      debug('not enough bytes in the key for 4-byte len');
-      return false;
-    }
-
-    const len = raw.readUInt32BE(0);
-    if (raw.length < 4 + len) {
-      debug('not enough bytes in the key for the data');
-      return false;
-    }
-
-    parts.push(raw.slice(4, 4 + len));
-    raw = raw.slice(4 + len);
-  }
-
-  if (parts.length !== 3) {
-    debug('invalid RSA key');
-    return false;
-  }
-
-  return parts[2].toString('hex');
-}
-
 async function* readKeys(file: string): AsyncIterableIterator<string> {
   const stream = fs.createReadStream(file);
   for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
     const keyIds: number[] = [];
     for (const key of pair.keys) {
-      const mod = parseSSHKey(key);
+      const mod = parseSSHRSAKey(key);
       if (!mod) {
         continue;
       }

@@ -4,13 +4,49 @@ import { Buffer } from 'buffer';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { splitParse, IPair, getKeysFiles } from '../src/common';
+import { splitParse, IPair, getKeysFiles, parseSSHRSAKey } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
 const KEYS_DIR = process.argv[2];
 
+function nextPowerOfTwo(value: number): number {
+  let res = 1;
+  while (res < value) {
+    res <<= 1;
+  }
+  return res;
+}
+
 async function main() {
+  function countMap<K>(map: Map<K, number>, key: K) {
+    let value: number;
+    if (map.has(key)) {
+      value = map.get(key)! + 1;
+    } else {
+      value = 1;
+    }
+    map.set(key, value);
+  }
+
+  function printMap<K>(map: Map<K, number>, total: number) {
+    const entries = Array.from(map.entries());
+
+    entries.sort((a, b) => {
+      return b[1] - a[1];
+    });
+
+    for (const [ key, count ] of entries) {
+      const percent = (count * 100) / total;
+
+      // Ignore outliers
+      if (percent < 0.01) {
+        continue;
+      }
+
+      console.log('  %s => %s %', key, percent.toFixed(2));
+    }
+  }
 
   let stats = {
     users: {
@@ -20,6 +56,7 @@ async function main() {
     keys: {
       total: 0,
       categories: new Map<string, number>(),
+      rsaSize: new Map<number, number>(),
     }
   };
 
@@ -38,13 +75,13 @@ async function main() {
         stats.keys.total++;
 
         const [ type ] = key.split(' ', 1);
-        let categoryCount: number;
-        if (stats.keys.categories.has(type)) {
-          categoryCount = stats.keys.categories.get(type)! + 1;
-        } else {
-          categoryCount = 1;
+        countMap(stats.keys.categories, type);
+
+        const rsa = parseSSHRSAKey(key);
+        if (rsa) {
+          const moduloBits = nextPowerOfTwo(rsa.length * 4);
+          countMap(stats.keys.rsaSize, moduloBits);
         }
-        stats.keys.categories.set(type, categoryCount);
       }
     }
   }
@@ -53,22 +90,17 @@ async function main() {
   const keysPerUser = stats.keys.total / stats.users.withKeys;
 
   console.log('Total users: %d', stats.users.total);
-  console.log('Percent of users with SSH keys: %s %',
+  console.log('Users with SSH keys: %s %',
     percentWithKeys.toFixed(2));
-  console.log('Mean number of keys per user with SSH keys: %s',
+  console.log('Keys per user with SSH keys: %s',
     keysPerUser.toFixed(2));
 
   console.log('Key statistics:');
-  for (const [ category, count ] of stats.keys.categories.entries()) {
-    const percent = (count * 100) / stats.keys.total;
+  printMap(stats.keys.categories, stats.keys.total);
 
-    // Ignore outliers
-    if (percent < 0.01) {
-      continue;
-    }
-
-    console.log('  %s => %s %', category, percent.toFixed(2));
-  }
+  console.log('RSA sizes:');
+  const rsaCount = stats.keys.categories.get('ssh-rsa') || 0;
+  printMap(stats.keys.rsaSize, rsaCount);
 }
 
 main().catch((e) => {
