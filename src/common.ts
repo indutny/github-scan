@@ -22,12 +22,6 @@ export interface IPair {
     readonly websiteUrl: string | null;
     readonly createdAt: string;
     readonly updatedAt: string;
-    readonly followerCount: number;
-    readonly issueCount: number;
-    readonly prCount: number;
-    readonly repositoryCount: number;
-    readonly contributedToCount: number;
-    readonly organizationCount: number;
   };
   readonly keys: ReadonlyArray<string>;
 }

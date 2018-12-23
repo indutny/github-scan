@@ -41,12 +41,6 @@ interface IGraphQLUser {
 
   readonly createdAt: string;
   readonly updatedAt: string;
-  readonly followers: { readonly totalCount: number };
-  readonly issues: { readonly totalCount: number };
-  readonly pullRequests: { readonly totalCount: number };
-  readonly repositories: { readonly totalCount: number };
-  readonly repositoriesContributedTo: { readonly totalCount: number };
-  readonly organizations: { readonly totalCount: number };
 }
 
 interface IGraphQLResponse {
@@ -76,30 +70,6 @@ function buildQuery(ids: ReadonlyArray<number>) {
           nodes {
             key
           }
-        }
-
-        followers(first: 0) {
-          totalCount
-        }
-
-        issues(first: 0) {
-          totalCount
-        }
-
-        pullRequests(first: 0) {
-          totalCount
-        }
-
-        repositories(first: 0, isFork: false) {
-          totalCount
-        }
-
-        repositoriesContributedTo(first: 0){
-          totalCount
-        }
-
-        organizations(first: 0) {
-          totalCount
         }
       }
     }
@@ -237,12 +207,6 @@ function formatUser(user: IGraphQLUser): IPair | false {
       websiteUrl: user.websiteUrl,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-      followerCount: user.followers.totalCount,
-      issueCount: user.issues.totalCount,
-      prCount: user.pullRequests.totalCount,
-      repositoryCount: user.repositories.totalCount,
-      contributedToCount: user.repositoriesContributedTo.totalCount,
-      organizationCount: user.organizations.totalCount,
     },
     keys: user.publicKeys.nodes.map((key) => key.key),
   };
