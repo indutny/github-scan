@@ -46,9 +46,7 @@ interface IGraphQLUser {
   readonly pullRequests: { readonly totalCount: number };
   readonly repositories: { readonly totalCount: number };
   readonly repositoriesContributedTo: { readonly totalCount: number };
-  readonly organizations: {
-    readonly nodes: ReadonlyArray<{ readonly name: string }>;
-  };
+  readonly organizations: { readonly totalCount: number };
 }
 
 interface IGraphQLResponse {
@@ -100,10 +98,8 @@ function buildQuery(ids: ReadonlyArray<number>) {
           totalCount
         }
 
-        organizations(first: 100) {
-          nodes {
-            name
-          }
+        organizations(first: 0) {
+          totalCount
         }
       }
     }
@@ -246,7 +242,7 @@ function formatUser(user: IGraphQLUser): IPair | false {
       prCount: user.pullRequests.totalCount,
       repositoryCount: user.repositories.totalCount,
       contributedToCount: user.repositoriesContributedTo.totalCount,
-      organizations: user.organizations.nodes.map((n) => n.name),
+      organizationCount: user.organizations.totalCount,
     },
     keys: user.publicKeys.nodes.map((key) => key.key),
   };

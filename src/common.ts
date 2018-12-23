@@ -27,7 +27,7 @@ export interface IPair {
     readonly prCount: number;
     readonly repositoryCount: number;
     readonly contributedToCount: number;
-    readonly organizations: ReadonlyArray<string>;
+    readonly organizationCount: number;
   };
   readonly keys: ReadonlyArray<string>;
 }
