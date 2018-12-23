@@ -17,10 +17,17 @@ export interface IPair {
     readonly name: string | null;
     readonly email: string | null;
     readonly company: string | null;
-    readonly avatarUrl: string;
     readonly bio: string | null;
     readonly location: string | null;
     readonly websiteUrl: string | null;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+    readonly followerCount: number;
+    readonly issueCount: number;
+    readonly prCount: number;
+    readonly repositoryCount: number;
+    readonly contributedToCount: number;
+    readonly organizations: ReadonlyArray<string>;
   };
   readonly keys: ReadonlyArray<string>;
 }

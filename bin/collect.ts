@@ -18,7 +18,7 @@ const GITHUB_GRAPHQL = process.env.GITHUB_GRAPHQL ||
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 const KEYS_DIR = path.join(__dirname, '..', 'keys');
-const SPLIT_SIZE = 1024768;
+const SPLIT_SIZE = 1 << 20;  // 1048576
 
 const PAGE_SIZE = 100;
 const PARALLEL = 1;
@@ -38,6 +38,17 @@ interface IGraphQLUser {
   readonly location: string | null;
   readonly websiteUrl: string | null;
   readonly publicKeys: { readonly nodes: ReadonlyArray<IGraphQLSSHKey> };
+
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly followers: { readonly totalCount: number };
+  readonly issues: { readonly totalCount: number };
+  readonly pullRequests: { readonly totalCount: number };
+  readonly repositories: { readonly totalCount: number };
+  readonly repositoriesContributedTo: { readonly totalCount: number };
+  readonly organizations: {
+    readonly nodes: ReadonlyArray<{ readonly name: string }>;
+  };
 }
 
 interface IGraphQLResponse {
@@ -57,13 +68,41 @@ function buildQuery(ids: ReadonlyArray<number>) {
         name
         email
         company
-        avatarUrl(size: 256)
         bio
         location
         websiteUrl
+        createdAt
+        updatedAt
+
         publicKeys(first: 100) {
           nodes {
             key
+          }
+        }
+
+        followers(first: 0) {
+          totalCount
+        }
+
+        issues(first: 0) {
+          totalCount
+        }
+
+        pullRequests(first: 0) {
+          totalCount
+        }
+
+        repositories(first: 0, isFork: false) {
+          totalCount
+        }
+
+        repositoriesContributedTo(first: 0){
+          totalCount
+        }
+
+        organizations(first: 100) {
+          nodes {
+            name
           }
         }
       }
@@ -193,10 +232,17 @@ function formatUser(user: IGraphQLUser): IPair | false {
       name: user.name,
       email: user.email,
       company: user.company,
-      avatarUrl: user.avatarUrl,
       bio: user.bio,
       location: user.location,
       websiteUrl: user.websiteUrl,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      followerCount: user.followers.totalCount,
+      issueCount: user.issues.totalCount,
+      prCount: user.pullRequests.totalCount,
+      repositoryCount: user.repositories.totalCount,
+      contributedToCount: user.repositoriesContributedTo.totalCount,
+      organizations: user.organizations.nodes.map((n) => n.name),
     },
     keys: user.publicKeys.nodes.map((key) => key.key),
   };
