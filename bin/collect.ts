@@ -186,6 +186,10 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
 
   if (res.status !== 200) {
     debug(`Unexpected error code: ${res.status}`);
+    try {
+      debug(`Body: ${await res.text()}`);
+    } catch (e) {
+    }
     debug('Retrying in 5 secs');
     await delay(5000);
     return await graphql(ids);
