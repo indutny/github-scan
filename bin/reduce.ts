@@ -4,25 +4,11 @@ import { Buffer } from 'buffer';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { splitParse, IPair, getKeysFiles } from '../src/common';
+import { splitParse, IPair, getKeysFiles, parseSSHRSAKey } from '../src/common';
 
 const debug = debugAPI('github-scan');
 
 const KEYS_DIR = process.argv[2];
-
-function formatDate(num: number): string {
-  const d = new Date(num);
-  const year = d.getFullYear();
-  const day = d.getUTCDate();
-  const month = d.getUTCMonth() + 1;
-  const hour = d.getHours();
-
-  return `${year}/${month}/${day} ${hour}:00`;
-}
-
-function escapeCSV(value: string): string {
-  return `"${value.replace(/([\\"])/g, '\\$1')}"`;
-}
 
 class Stat {
   private readonly values: number[] = [];
@@ -49,13 +35,21 @@ class Stat {
   }
 }
 
+interface IStatsCollection {
+  readonly updatedAt: Stat;
+  readonly keyCount: Stat;
+  readonly keySize: Stat;
+}
+
 interface IReduceEntry {
   readonly createdAt: number;
   readonly updatedAt: number;
-};
+  readonly keyCount: number;
+  readonly keySize: number;
+}
 
 async function main() {
-  const stats: Map<number, Stat> = new Map();
+  const stats: Map<number, IStatsCollection> = new Map();
 
   const GRANULARITY = 1000 * 3600;
 
@@ -72,21 +66,41 @@ async function main() {
       const createdAt = roundTime(pair.user.createdAt);
       const updatedAt = roundTime(pair.user.updatedAt);
 
-      let stat: Stat;
+      let collection: IStatsCollection;
       if (stats.has(createdAt)) {
-        stat = stats.get(createdAt)!;
+        collection = stats.get(createdAt)!;
       } else {
-        stat = new Stat();
-        stats.set(createdAt, stat);
+        collection = {
+          updatedAt: new Stat(),
+          keyCount: new Stat(),
+          keySize: new Stat(),
+        };
+        stats.set(createdAt, collection);
       }
-      stat.add(updatedAt);
+
+      collection.updatedAt.add(updatedAt);
+      collection.keyCount.add(pair.keys.length);
+
+      for (const key of pair.keys) {
+        const rsa = parseSSHRSAKey(key);
+        if (!rsa) {
+          continue;
+        }
+
+        collection.keySize.add(rsa.length * 4);
+      }
     }
   }
 
   debug('computing results');
   const result: IReduceEntry[] = [];
-  for (const [ key, stat ] of stats) {
-    result.push({ createdAt: key, updatedAt: stat.mean });
+  for (const [ key, collection ] of stats) {
+    result.push({
+      createdAt: key,
+      updatedAt: collection.updatedAt.mean,
+      keyCount: collection.keyCount.mean,
+      keySize: collection.keySize.mean,
+    });
   }
 
   // Sort chronologically
@@ -94,13 +108,19 @@ async function main() {
     return a.createdAt - b.createdAt;
   });
 
-  process.stdout.write('created_at,updated_at\n');
-  for (const entry of result) {
-    const createdAt = formatDate(entry.createdAt);
-    const updatedAt = formatDate(entry.updatedAt);
-    process.stdout.write(`${escapeCSV(createdAt)},${escapeCSV(updatedAt)}\n`);
-  }
-  process.stdout.end();
+  console.log(JSON.stringify({
+    schema: {
+      createdAt: 0,
+      updatedAt: 1,
+      keyCount: 2,
+      keySize: 3,
+    },
+    entries: result.map((entry) => {
+      return [
+        entry.createdAt, entry.updatedAt, entry.keyCount, entry.keySize,
+      ];
+    }),
+  }));
 }
 
 main().catch((e) => {
