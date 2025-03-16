@@ -113,7 +113,7 @@ async function main() {
       }
 
       const hasKeys = pair.keys.length !== 0;
-      correlation.next({ nonEmpty, hasKeys });
+      correlation.next({ nonEmpty: !!nonEmpty, hasKeys });
 
       if (!hasKeys) {
         continue;
