@@ -7,7 +7,7 @@ import { type Readable } from 'stream';
 import { BloomFilter } from 'bloomfilter';
 
 import {
-  splitParse, IPair, getKeysStreams, parseSSHRSAKey,
+  splitParse, getKeysStreams, parseSSHRSAKey,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -16,7 +16,7 @@ const KEYS_DIR = process.argv[2];
 const OUT_KEY_LIST = process.argv[3];
 
 async function* readKeys(stream: Readable): AsyncIterableIterator<string> {
-  for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
+  for await (const pair of splitParse(stream)) {
     const keyIds: number[] = [];
     for (const key of pair.keys) {
       const mod = parseSSHRSAKey(key);

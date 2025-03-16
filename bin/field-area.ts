@@ -6,7 +6,7 @@ import * as path from 'path';
 import { Hex } from 'hex-coords';
 
 import {
-  splitParse, IPair, getKeysStreams, parseSSHRSAKey,
+  splitParse, getKeysStreams, parseSSHRSAKey,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -47,7 +47,7 @@ async function main() {
   for (const [i, createStream] of files.entries()) {
     debug(`processing "${i}"`);
     const stream = createStream();
-    for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
+    for await (const pair of splitParse(stream)) {
       const date = new Date(FIELD === 'location' ? pair.user.createdAt :
         pair.user.updatedAt).getTime();
 

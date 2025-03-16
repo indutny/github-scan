@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-  splitParse, IPair, getKeysStreams, parseSSHRSAKey,
+  splitParse, getKeysStreams, parseSSHRSAKey,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -105,7 +105,7 @@ async function main() {
   for (const [i, createStream] of files.entries()) {
     debug(`processing "${i}"`);
     const stream = createStream();
-    for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
+    for await (const pair of splitParse(stream)) {
       stats.users.total++;
 
       const nonEmpty = pair.user.name || pair.user.bio || pair.user.location ||

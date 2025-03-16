@@ -3,6 +3,7 @@ import * as debugAPI from 'debug';
 import { join } from 'path';
 import { Readable } from 'stream';
 import { createDecompressor } from 'lzma-native';
+import { z } from 'zod';
 
 const debug = debugAPI('github-scan:common');
 
@@ -12,24 +13,27 @@ export const KEYS_FILE_POSTFIX = '.json';
 
 const WHITESPACE = /\s+/g;
 
-export interface IPair {
-  readonly user: {
-    readonly id: number;
-    readonly login: string;
-    readonly name: string | null;
-    readonly email: string | null;
-    readonly company: string | null;
-    readonly bio: string | null;
-    readonly location: string | null;
-    readonly websiteUrl: string | null;
-    readonly createdAt: string;
-    readonly updatedAt: string;
-  };
-  readonly keys: ReadonlyArray<string>;
-}
+export const PairSchema = z.object({
+  user: z.object({
+    id: z.number(),
+    login: z.string(),
+    name: z.string().or(z.null()),
+    email: z.string().or(z.null()),
+    company: z.string().or(z.null()),
+    bio: z.string().or(z.null()),
+    location: z.string().or(z.null()),
+    websiteUrl: z.string().or(z.null()),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+  keys: z.string().array(),
+});
 
-export async function* splitParse<T>(stream: Readable,
-                                     parse: (v: string) => T) {
+export type Pair = z.infer<typeof PairSchema>;
+
+export async function* splitParse(
+  stream: Readable,
+): AsyncIterableIterator<Pair> {
   let buffer: string = '';
   for await (const data of stream) {
     let start: number = 0;
@@ -38,7 +42,7 @@ export async function* splitParse<T>(stream: Readable,
         buffer += data.slice(start, i);
         start = i + 1;
         if (buffer) {
-          yield parse(buffer);
+          yield PairSchema.parse(JSON.parse(buffer));
         }
 
         buffer = '';
@@ -51,7 +55,7 @@ export async function* splitParse<T>(stream: Readable,
   }
 
   if (buffer) {
-    yield parse(buffer);
+    yield PairSchema.parse(JSON.parse(buffer));
   }
 }
 

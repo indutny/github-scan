@@ -12,7 +12,7 @@ import { spawn } from 'child_process';
 import { z } from 'zod';
 
 import {
-  IPair, splitParse, keysFileName, getKeysFiles, getKeysFileChunk,
+  Pair, splitParse, keysFileName, getKeysFiles, getKeysFileChunk,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -190,7 +190,7 @@ async function getUsers(
   }
 }
 
-function formatUser(user: z.infer<typeof UserSchema>): IPair | false {
+function formatUser(user: z.infer<typeof UserSchema>): Pair | false {
   const nodeId = Buffer.from(user.id, 'base64').toString();
   const match = nodeId.match(/^04:User(\d+)$/);
   if (!match) {
@@ -219,7 +219,7 @@ function formatUser(user: z.infer<typeof UserSchema>): IPair | false {
 async function* fetchPairs(start: number,
                            pageSize: number = PAGE_SIZE,
                            parallel: number = PARALLEL)
-    : AsyncIterableIterator<IPair> {
+    : AsyncIterableIterator<Pair> {
   let current = start;
 
   function nextRange() {
@@ -263,7 +263,7 @@ async function getKeysFileStats(keysFile: string) {
   const file = fs.createReadStream(keysFile);
   let lastId = 0;
   let count = 0;
-  for await (const pair of splitParse<IPair>(file, (v) => JSON.parse(v))) {
+  for await (const pair of splitParse(file)) {
     lastId = Math.max(lastId, pair.user.id);
     count++;
   }
