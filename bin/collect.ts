@@ -5,8 +5,9 @@ import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
 import * as path from 'path';
 import { Buffer } from 'buffer';
-import { promisify } from 'node:util';
+import { promisify } from 'util';
 import { Writable } from 'stream';
+import { spawn } from 'child_process';
 
 import {
   IPair, splitParse, keysFileName, getKeysFiles, getKeysFileChunk,
@@ -292,15 +293,22 @@ async function main() {
 
   let out: Writable | undefined;
   for await (const pair of fetchPairs(startId)) {
-    if (size === SPLIT_SIZE) {
+    if (size >= SPLIT_SIZE) {
       debug('keys file is full, creating new chunk');
       chunkId++;
+
+      const oldFile = keysFile;
       keysFile = path.join(KEYS_DIR, keysFileName(chunkId));
 
       if (out) {
         debug('ending previous stream');
         out.end();
       }
+
+      spawn('xz', ['--compress', '-9', oldFile], {
+        cwd: KEYS_DIR,
+      });
+
       out = undefined;
 
       size = 0;
