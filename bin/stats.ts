@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-  splitParse, getKeysStreams, parseSSHRSAKey,
+  getPairIterator, parseSSHRSAKey,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -101,40 +101,35 @@ async function main() {
 
   const correlation = computeCorrelation();
 
-  const files = await getKeysStreams(KEYS_DIR);
-  for (const [i, createStream] of files.entries()) {
-    debug(`processing "${i}"`);
-    const stream = createStream();
-    for await (const pair of splitParse(stream)) {
-      stats.users.total++;
+  for await (const pair of getPairIterator(KEYS_DIR)) {
+    stats.users.total++;
 
-      const nonEmpty = pair.user.name || pair.user.bio || pair.user.location ||
-          pair.user.email || pair.user.websiteUrl || pair.user.company;
-      if (nonEmpty) {
-        stats.users.nonEmpty++;
-      }
+    const nonEmpty = pair.user.name || pair.user.bio || pair.user.location ||
+        pair.user.email || pair.user.websiteUrl || pair.user.company;
+    if (nonEmpty) {
+      stats.users.nonEmpty++;
+    }
 
-      const hasKeys = pair.keys.length !== 0;
-      correlation.next({ nonEmpty: !!nonEmpty, hasKeys });
+    const hasKeys = pair.keys.length !== 0;
+    correlation.next({ nonEmpty: !!nonEmpty, hasKeys });
 
-      if (!hasKeys) {
-        continue;
-      }
+    if (!hasKeys) {
+      continue;
+    }
 
-      stats.users.withKeys++;
-      if (nonEmpty) {
-        stats.users.nonEmptyWithKeys++;
-      }
-      for (const key of pair.keys) {
-        stats.keys.total++;
+    stats.users.withKeys++;
+    if (nonEmpty) {
+      stats.users.nonEmptyWithKeys++;
+    }
+    for (const key of pair.keys) {
+      stats.keys.total++;
 
-        const [ type ] = key.split(' ', 1);
-        countMap(stats.keys.categories, type);
+      const [ type ] = key.split(' ', 1);
+      countMap(stats.keys.categories, type);
 
-        const rsa = parseSSHRSAKey(key);
-        if (rsa) {
-          countMap(stats.keys.rsaSize, rsa.length * 4);
-        }
+      const rsa = parseSSHRSAKey(key);
+      if (rsa) {
+        countMap(stats.keys.rsaSize, rsa.length * 4);
       }
     }
   }

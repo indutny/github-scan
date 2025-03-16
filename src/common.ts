@@ -107,6 +107,19 @@ export async function getKeysStreams(
   });
 }
 
+export async function* getPairIterator(
+  dir: string,
+): AsyncIterableIterator<Pair> {
+  const files = await getKeysStreams(dir);
+  for (const [i, createStream] of files.entries()) {
+    debug(`processing "${i}"`);
+    const stream = createStream();
+    for await (const pair of splitParse(stream)) {
+      yield pair;
+    }
+  }
+}
+
 export function parseSSHRSAKey(key: string): string | false {
   if (!key.startsWith('ssh-rsa ')) {
     return false;

@@ -6,7 +6,7 @@ import * as path from 'path';
 import { Hex } from 'hex-coords';
 
 import {
-  splitParse, getKeysStreams, parseSSHRSAKey,
+  getPairIterator, parseSSHRSAKey,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -20,24 +20,18 @@ interface IBinEntry {
 }
 
 async function main() {
-  const files = await getKeysStreams(KEYS_DIR);
-
   const points: number[] = [];
 
   let minDate = Infinity;
   let maxDate = 0;
-  for (const [i, createStream] of files.entries()) {
-    debug(`processing "${i}"`);
-    const stream = createStream();
-    for await (const pair of splitParse(stream)) {
-      const createdAt = new Date(pair.user.createdAt).getTime();
-      const updatedAt = new Date(pair.user.updatedAt).getTime();
+  for await (const pair of getPairIterator(KEYS_DIR)) {
+    const createdAt = new Date(pair.user.createdAt).getTime();
+    const updatedAt = new Date(pair.user.updatedAt).getTime();
 
-      maxDate = Math.max(maxDate, createdAt, updatedAt);
-      minDate = Math.min(minDate, createdAt, updatedAt);
+    maxDate = Math.max(maxDate, createdAt, updatedAt);
+    minDate = Math.min(minDate, createdAt, updatedAt);
 
-      points.push(createdAt, updatedAt);
-    }
+    points.push(createdAt, updatedAt);
   }
 
   debug('filling the table, points.len=%d', points.length);
