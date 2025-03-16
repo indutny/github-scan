@@ -6,7 +6,7 @@ import { createDecompressor } from 'lzma-native';
 
 const debug = debugAPI('github-scan:common');
 
-export const KEYS_FILE_RE = /^keys-(\d+)\.json(\.xz)$/;
+export const KEYS_FILE_RE = /^keys-(\d+)\.json(\.xz)?$/;
 export const KEYS_FILE_PREFIX = 'keys-';
 export const KEYS_FILE_POSTFIX = '.json';
 
