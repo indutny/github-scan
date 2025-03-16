@@ -16,10 +16,12 @@
     "bloomfilter": "0.0.18",
     "debug": "^4.1.0",
     "hex-coords": "^1.0.1",
+    "lzma-native": "^8.0.6",
     "node-fetch": "^2.3.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/lzma-native": "^4.0.4",
     "@types/node": "^22.13.10",
     "ts-node": "^9.1.1",
     "typescript": "^5.8.2"

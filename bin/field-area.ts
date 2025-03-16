@@ -5,7 +5,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Hex } from 'hex-coords';
 
-import { splitParse, IPair, getKeysFiles, parseSSHRSAKey } from '../src/common';
+import {
+  splitParse, IPair, getKeysStreams, parseSSHRSAKey,
+} from '../src/common';
 
 const debug = debugAPI('github-scan');
 
@@ -25,7 +27,7 @@ interface IBin {
 }
 
 async function main() {
-  const files = await getKeysFiles(KEYS_DIR);
+  const files = await getKeysStreams(KEYS_DIR);
 
   const byKind: Map<string, IBin> = new Map();
 
@@ -42,9 +44,9 @@ async function main() {
   }
 
   const extent = { min: Infinity, max: 0 };
-  for (const file of files) {
-    debug(`processing "${file}"`);
-    const stream = fs.createReadStream(path.join(KEYS_DIR, file));
+  for (const [i, createStream] of files.entries()) {
+    debug(`processing "${i}"`);
+    const stream = createStream();
     for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
       const date = new Date(FIELD === 'location' ? pair.user.createdAt :
         pair.user.updatedAt).getTime();

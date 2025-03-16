@@ -4,7 +4,9 @@ import { Buffer } from 'buffer';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { splitParse, IPair, getKeysFiles, parseSSHRSAKey } from '../src/common';
+import {
+  splitParse, IPair, getKeysStreams, parseSSHRSAKey,
+} from '../src/common';
 
 const debug = debugAPI('github-scan');
 
@@ -99,10 +101,10 @@ async function main() {
 
   const correlation = computeCorrelation();
 
-  const files = await getKeysFiles(KEYS_DIR);
-  for (const file of files) {
-    debug(`processing "${file}"`);
-    const stream = fs.createReadStream(path.join(KEYS_DIR, file));
+  const files = await getKeysStreams(KEYS_DIR);
+  for (const [i, createStream] of files.entries()) {
+    debug(`processing "${i}"`);
+    const stream = createStream();
     for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
       stats.users.total++;
 

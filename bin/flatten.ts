@@ -3,17 +3,19 @@ import * as debugAPI from 'debug';
 import { Buffer } from 'buffer';
 import * as fs from 'fs';
 import * as path from 'path';
+import { type Readable } from 'stream';
 import { BloomFilter } from 'bloomfilter';
 
-import { splitParse, IPair, getKeysFiles, parseSSHRSAKey } from '../src/common';
+import {
+  splitParse, IPair, getKeysStreams, parseSSHRSAKey,
+} from '../src/common';
 
 const debug = debugAPI('github-scan');
 
 const KEYS_DIR = process.argv[2];
 const OUT_KEY_LIST = process.argv[3];
 
-async function* readKeys(file: string): AsyncIterableIterator<string> {
-  const stream = fs.createReadStream(file);
+async function* readKeys(stream: Readable): AsyncIterableIterator<string> {
   for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
     const keyIds: number[] = [];
     for (const key of pair.keys) {
@@ -28,16 +30,16 @@ async function* readKeys(file: string): AsyncIterableIterator<string> {
 }
 
 async function main() {
-  const files = await getKeysFiles(KEYS_DIR);
+  const files = await getKeysStreams(KEYS_DIR);
   const out = fs.createWriteStream(OUT_KEY_LIST);
 
   // Calculated at: https://hur.st/bloomfilter/?n=10000000&p=1e-9&m=&k=
   //
   // 1e6 elements with 1e-9 probability of false positive
   const seen = new BloomFilter(431327627, 30);
-  for (const file of files) {
-    debug(`reading keys from "${file}"`);
-    for await (const key of readKeys(path.join(KEYS_DIR, file))) {
+  for (const [i, createStream] of files.entries()) {
+    debug(`reading keys from "${i}"`);
+    for await (const key of readKeys(createStream())) {
       if (seen.test(key)) {
         debug('duplicate modulo');
         continue;

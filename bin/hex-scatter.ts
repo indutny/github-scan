@@ -5,7 +5,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Hex } from 'hex-coords';
 
-import { splitParse, IPair, getKeysFiles, parseSSHRSAKey } from '../src/common';
+import {
+  splitParse, IPair, getKeysStreams, parseSSHRSAKey,
+} from '../src/common';
 
 const debug = debugAPI('github-scan');
 
@@ -18,15 +20,15 @@ interface IBinEntry {
 }
 
 async function main() {
-  const files = await getKeysFiles(KEYS_DIR);
+  const files = await getKeysStreams(KEYS_DIR);
 
   const points: number[] = [];
 
   let minDate = Infinity;
   let maxDate = 0;
-  for (const file of files) {
-    debug(`processing "${file}"`);
-    const stream = fs.createReadStream(path.join(KEYS_DIR, file));
+  for (const [i, createStream] of files.entries()) {
+    debug(`processing "${i}"`);
+    const stream = createStream();
     for await (const pair of splitParse<IPair>(stream, (v) => JSON.parse(v))) {
       const createdAt = new Date(pair.user.createdAt).getTime();
       const updatedAt = new Date(pair.user.updatedAt).getTime();

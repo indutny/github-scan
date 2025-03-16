@@ -1,10 +1,12 @@
 import * as fs from 'fs';
 import * as debugAPI from 'debug';
+import { join } from 'path';
 import { Readable } from 'stream';
+import { createDecompressor } from 'lzma-native';
 
 const debug = debugAPI('github-scan:common');
 
-export const KEYS_FILE_RE = /^keys-(\d+)\.json$/;
+export const KEYS_FILE_RE = /^keys-(\d+)\.json(\.xz)$/;
 export const KEYS_FILE_PREFIX = 'keys-';
 export const KEYS_FILE_POSTFIX = '.json';
 
@@ -78,6 +80,27 @@ export async function getKeysFiles(dir: string) {
   return files.filter((file) => {
     return KEYS_FILE_RE.test(file);
   }).sort();
+}
+
+export async function getKeysStreams(
+  dir: string,
+): Promise<Array<() => Readable>> {
+  const files = await getKeysFiles(dir);
+
+  return files.map(file => {
+    return () => {
+      const fullPath = join(dir, file);
+
+      let result: Readable = fs.createReadStream(fullPath);
+      if (!file.endsWith('.xz')) {
+        return result;
+      }
+
+      const xz = createDecompressor();
+      result.pipe(xz);
+      return xz;
+    };
+  });
 }
 
 export function parseSSHRSAKey(key: string): string | false {
