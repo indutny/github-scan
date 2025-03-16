@@ -8,6 +8,7 @@ import { Buffer } from 'buffer';
 import { promisify } from 'util';
 import { Writable } from 'stream';
 import { spawn } from 'child_process';
+import { z } from 'zod';
 
 import {
   IPair, splitParse, keysFileName, getKeysFiles, getKeysFileChunk,
@@ -25,31 +26,38 @@ const SPLIT_SIZE = 1 << 20;  // 1048576
 const PAGE_SIZE = 100;
 const PARALLEL = 1;
 
-interface IGraphQLSSHKey {
-  readonly key: string;
-}
+const optString = z.string().or(z.null());
 
-interface IGraphQLUser {
-  readonly id: string;
-  readonly login: string;
-  readonly name: string | null;
-  readonly email: string | null;
-  readonly company: string | null;
-  readonly avatarUrl: string;
-  readonly bio: string | null;
-  readonly location: string | null;
-  readonly websiteUrl: string | null;
-  readonly publicKeys: { readonly nodes: ReadonlyArray<IGraphQLSSHKey> };
+// Don't update this while running or resumption won't work
+const USER_COUNT = 152469245;
 
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
+// Pick a prime that doesn't divide USER_COUNT
+const PRIME = 999331;
 
-interface IGraphQLResponse {
-  readonly nodes: ReadonlyArray<IGraphQLUser | null>;
-}
+const UserSchema = z.object({
+  id: z.string(),
+  login: z.string(),
+  name: optString,
+  email: optString,
+  company: optString,
+  bio: optString,
+  location: optString,
+  websiteUrl: optString,
+  createdAt: z.string(),
+  updatedAt: z.string(),
 
-function buildQuery(ids: ReadonlyArray<number>) {
+  publicKeys: z.object({
+    nodes: z.object({ key: z.string() }).array(),
+  }),
+});
+
+const UserResponseSchema = z.object({
+  data: z.object({
+    nodes: UserSchema.or(z.null()).or(z.object({})).array(),
+  }),
+});
+
+function buildUsersQuery(ids: ReadonlyArray<number>): string {
   const base64IDs = ids.map((id) => {
     return Buffer.from(`04:User${id}`).toString('base64');
   });
@@ -84,8 +92,8 @@ async function delay(ms: number): Promise<void> {
   });
 }
 
-async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
-  debug(`request users starting from ids "${ids}"`);
+async function graphql(logId: string, query: string): Promise<unknown> {
+  debug(`grapql ${logId}`);
 
   let res: Response;
   try {
@@ -96,14 +104,14 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        query: buildQuery(ids),
+        query,
       }),
     });
   } catch (e) {
     debug((e as Error).message);
     debug(`retrying request in 5 secs`);
     await delay(5000);
-    return await graphql(ids);
+    return await graphql(logId, query);
   }
 
   const hasRateLimitInfo = res.headers.has('x-ratelimit-remaining') &&
@@ -119,12 +127,12 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
       debug(`rate limited until: ${new Date(resetAt)}`);
 
       const timeout = Math.max(0, resetAt - Date.now());
-      debug(`retrying ids="${ids}" in ${(timeout / 1000) | 0} secs`);
+      debug(`retrying ${logId} in ${(timeout / 1000) | 0} secs`);
 
       // Add extra seconds to prevent immediate exhaustion
       await delay(timeout + 10000);
 
-      return await graphql(ids);
+      return await graphql(logId, query);
     }
   }
 
@@ -134,7 +142,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
       const secs = parseInt(res.headers.get('retry-after')!, 10);
       debug(`got retry-after header, retrying after ${secs}`);
       await delay(secs * 1000);
-      return await graphql(ids);
+      return await graphql(logId, query);
     }
 
     if (!hasRateLimitInfo) {
@@ -143,13 +151,13 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
       debug('raw headers %j', res.headers.raw());
       debug('Retrying in 5 secs');
       await delay(5000);
-      return await graphql(ids);
+      return await graphql(logId, query);
     }
 
     debug('403, but still have requests left');
     debug('Retrying in 5 secs');
     await delay(5000);
-    return await graphql(ids);
+    return await graphql(logId, query);
   }
 
   if (res.status !== 200) {
@@ -160,35 +168,33 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
     }
     debug('Retrying in 5 secs');
     await delay(5000);
-    return await graphql(ids);
+    return await graphql(logId, query);
   }
 
-  const link = res.headers.get('link');
-  let next: boolean | string = false;
-  if (link) {
-    // Link: <...>; rel="next"
-    const match = link.match(/<([^>]+)>\s*;\s*rel="next"/);
-    if (match) {
-      next = match[1];
-    }
-  }
+  return await res.json();
+}
+
+async function getUsers(
+  ids: ReadonlyArray<number>,
+): Promise<z.infer<typeof UserResponseSchema>> {
+  const logId = `users=${ids.at(0)}#${ids.length}`;
+  const query = buildUsersQuery(ids);
+
+  const json = await graphql(logId, query);
 
   try {
-    const json = await res.json();
-    if (!json.data || !json.data.nodes || !Array.isArray(json.data.nodes)) {
-      debug('Unexpected JSON response: %j', json);
-      throw new Error('Invalid JSON');
-    }
-    return json.data;
+    return UserResponseSchema.parse(json);
   } catch (e) {
+    fs.writeFileSync('/tmp/1.json', JSON.stringify(json, null, 2));
+    process.exit(1);
     debug((e as Error).message);
     debug(`retrying request in 5 secs`);
     await delay(5000);
-    return await graphql(ids);
+    return await getUsers(ids);
   }
 }
 
-function formatUser(user: IGraphQLUser): IPair | false {
+function formatUser(user: z.infer<typeof UserSchema>): IPair | false {
   const nodeId = Buffer.from(user.id, 'base64').toString();
   const match = nodeId.match(/^04:User(\d+)$/);
   if (!match) {
@@ -218,10 +224,13 @@ async function* fetchPairs(start: number,
                            pageSize: number = PAGE_SIZE,
                            parallel: number = PARALLEL)
     : AsyncIterableIterator<IPair> {
-  function fillRange(start: number, end: number) {
+  let current = start;
+
+  function nextRange() {
     const res: number[] = [];
-    for (let i = start; i < end; i++) {
-      res.push(i);
+    while (res.length < pageSize) {
+      res.push(current);
+      current = (current + PRIME) % USER_COUNT;
     }
     return res;
   }
@@ -229,18 +238,14 @@ async function* fetchPairs(start: number,
   for (;;) {
     const ranges: ReadonlyArray<number>[] = [];
     for (let i = 0; i < parallel; i++) {
-      const end = start + pageSize;
-      ranges.push(fillRange(start, end));
-      start = end;
+      ranges.push(nextRange());
     }
 
-    const pages = await Promise.all(ranges.map(async (ids) => {
-      return await graphql(ids);
-    }));
+    const pages = await Promise.all(ranges.map(ids => getUsers(ids)));
 
-    for (const page of pages) {
+    for (const { data: page } of pages) {
       for (const maybeUser of page.nodes) {
-        if (!(maybeUser && maybeUser.hasOwnProperty('id'))) {
+        if (!(maybeUser && 'id' in maybeUser)) {
           continue;
         }
 
