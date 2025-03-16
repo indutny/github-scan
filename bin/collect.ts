@@ -28,12 +28,6 @@ const PARALLEL = 1;
 
 const optString = z.string().or(z.null());
 
-// Don't update this while running or resumption won't work
-const USER_COUNT = 152469245;
-
-// Pick a prime that doesn't divide USER_COUNT
-const PRIME = 999331;
-
 const UserSchema = z.object({
   id: z.string(),
   login: z.string(),
@@ -54,7 +48,7 @@ const UserSchema = z.object({
 const UserResponseSchema = z.object({
   data: z.object({
     nodes: UserSchema.or(z.null()).or(z.object({})).array(),
-  }),
+  }).optional(),
 });
 
 function buildUsersQuery(ids: ReadonlyArray<number>): string {
@@ -228,7 +222,7 @@ async function* fetchPairs(start: number,
     const res: number[] = [];
     while (res.length < pageSize) {
       res.push(current);
-      current = (current + PRIME) % USER_COUNT;
+      current += 1;
     }
     return res;
   }
@@ -241,8 +235,13 @@ async function* fetchPairs(start: number,
 
     const pages = await Promise.all(ranges.map(ids => getUsers(ids)));
 
-    for (const { data: page } of pages) {
-      for (const maybeUser of page.nodes) {
+    for (const page of pages) {
+      if (!page.data) {
+        debug('empty page');
+        continue;
+      }
+
+      for (const maybeUser of page.data.nodes) {
         if (!(maybeUser && 'id' in maybeUser)) {
           continue;
         }
