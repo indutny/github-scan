@@ -25,7 +25,7 @@ const KEYS_DIR = path.join(__dirname, '..', 'keys');
 const SPLIT_SIZE = 1 << 20;  // 1048576
 
 const PAGE_SIZE = 100;
-const PARALLEL = 1;
+const PARALLEL = 2 * GITHUB_TOKEN.length;
 
 const optString = z.string().or(z.null());
 
