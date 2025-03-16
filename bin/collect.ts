@@ -1,6 +1,7 @@
 #!/usr/bin/env npx ts-node
 import * as debugAPI from 'debug';
 import * as fs from 'fs';
+import { createHash } from 'crypto';
 import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
 import * as path from 'path';
@@ -18,7 +19,7 @@ const debug = debugAPI('github-scan');
 
 const GITHUB_GRAPHQL = process.env.GITHUB_GRAPHQL ||
   'https://api.github.com/graphql';
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GITHUB_TOKEN = (process.env.GITHUB_TOKEN ?? '').split(',');
 
 const KEYS_DIR = path.join(__dirname, '..', 'keys');
 const SPLIT_SIZE = 1 << 20;  // 1048576
@@ -89,12 +90,15 @@ async function delay(ms: number): Promise<void> {
 async function graphql(logId: string, query: string): Promise<unknown> {
   debug(`grapql ${logId}`);
 
+  const hash = createHash('sha256').update(query).digest()[0];
+  const token = GITHUB_TOKEN[hash % GITHUB_TOKEN.length];
+
   let res: Response;
   try {
     res = await fetch(GITHUB_GRAPHQL, {
       method: 'POST',
       headers: {
-        'authorization': `bearer ${GITHUB_TOKEN}`,
+        'authorization': `bearer ${token}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify({
