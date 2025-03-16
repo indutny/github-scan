@@ -112,7 +112,7 @@ export async function* getPairIterator(
 ): AsyncIterableIterator<Pair> {
   const files = await getKeysStreams(dir);
   for (const [i, createStream] of files.entries()) {
-    debug(`processing "${i}"`);
+    debug(`processing "${dir}:${i}"`);
     const stream = createStream();
     for await (const pair of splitParse(stream)) {
       yield pair;
@@ -158,4 +158,3 @@ export function parseSSHRSAKey(key: string): string | false {
   }
   return rawKey.toString('hex');
 }
-

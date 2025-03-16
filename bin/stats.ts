@@ -56,35 +56,6 @@ function* computeCorrelation() {
 }
 
 async function main() {
-  function countMap<K>(map: Map<K, number>, key: K) {
-    let value: number;
-    if (map.has(key)) {
-      value = map.get(key)! + 1;
-    } else {
-      value = 1;
-    }
-    map.set(key, value);
-  }
-
-  function printMap<K>(map: Map<K, number>, total: number) {
-    const entries = Array.from(map.entries());
-
-    entries.sort((a, b) => {
-      return b[1] - a[1];
-    });
-
-    for (const [ key, count ] of entries) {
-      const percent = (count * 100) / total;
-
-      // Ignore outliers
-      if (percent < 0.01) {
-        continue;
-      }
-
-      console.log('  %s => %s %', key, percent.toFixed(2));
-    }
-  }
-
   const stats = {
     users: {
       total: 0,
