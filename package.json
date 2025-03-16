@@ -12,7 +12,6 @@
   "dependencies": {
     "@types/bloomfilter": "0.0.0",
     "@types/debug": "0.0.31",
-    "@types/node": "^10.12.12",
     "@types/node-fetch": "^2.1.4",
     "bloomfilter": "0.0.18",
     "debug": "^4.1.0",
@@ -20,7 +19,8 @@
     "node-fetch": "^2.3.0"
   },
   "devDependencies": {
-    "ts-node": "^7.0.1",
-    "typescript": "^3.2.2"
+    "@types/node": "^22.13.10",
+    "ts-node": "^9.1.1",
+    "typescript": "^5.8.2"
   }
 }

@@ -5,7 +5,8 @@ import fetch from 'node-fetch';
 import { Response } from 'node-fetch';
 import * as path from 'path';
 import { Buffer } from 'buffer';
-import { promisify } from 'util';
+import { promisify } from 'node:util';
+import { Writable } from 'stream';
 
 import {
   IPair, splitParse, keysFileName, getKeysFiles, getKeysFileChunk,
@@ -98,7 +99,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
       }),
     });
   } catch (e) {
-    debug(e.message);
+    debug((e as Error).message);
     debug(`retrying request in 5 secs`);
     await delay(5000);
     return await graphql(ids);
@@ -179,7 +180,7 @@ async function graphql(ids: ReadonlyArray<number>): Promise<IGraphQLResponse> {
     }
     return json.data;
   } catch (e) {
-    debug(e.message);
+    debug((e as Error).message);
     debug(`retrying request in 5 secs`);
     await delay(5000);
     return await graphql(ids);
@@ -252,14 +253,14 @@ async function* fetchPairs(start: number,
 }
 
 async function getKeysFileStats(keysFile: string) {
-  const input = fs.createReadStream(keysFile);
+  const file = fs.createReadStream(keysFile);
   let lastId = 0;
   let count = 0;
-  for await (const pair of splitParse<IPair>(input, (v) => JSON.parse(v))) {
+  for await (const pair of splitParse<IPair>(file, (v) => JSON.parse(v))) {
     lastId = Math.max(lastId, pair.user.id);
     count++;
   }
-  input.close();
+  file.close();
   return [ lastId, count ];
 }
 
@@ -289,7 +290,7 @@ async function main() {
   const startId = lastId + 1;
   debug(`resuming from ${startId}, size ${size}`);
 
-  let out: fs.WriteStream | undefined;
+  let out: Writable | undefined;
   for await (const pair of fetchPairs(startId)) {
     if (size === SPLIT_SIZE) {
       debug('keys file is full, creating new chunk');
