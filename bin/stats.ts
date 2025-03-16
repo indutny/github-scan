@@ -152,7 +152,7 @@ async function main() {
   console.log('Keys per user with SSH keys: %s',
     keysPerUser.toFixed(2));
   console.log('Correlation non-empty user + has keys: %s',
-    correlation.next(undefined).value.toFixed(2));
+    correlation.next().value.toFixed(2));
 
   console.log('Key statistics:');
   printMap(stats.keys.categories, stats.keys.total);
