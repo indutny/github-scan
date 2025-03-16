@@ -24,7 +24,7 @@ const KEYS_DIR = path.join(__dirname, '..', 'keys');
 const SPLIT_SIZE = 1 << 20;  // 1048576
 
 const PAGE_SIZE = 100;
-const PARALLEL = 1;
+const PARALLEL = 2;
 
 const optString = z.string().or(z.null());
 
@@ -185,8 +185,6 @@ async function getUsers(
   try {
     return UserResponseSchema.parse(json);
   } catch (e) {
-    fs.writeFileSync('/tmp/1.json', JSON.stringify(json, null, 2));
-    process.exit(1);
     debug((e as Error).message);
     debug(`retrying request in 5 secs`);
     await delay(5000);
