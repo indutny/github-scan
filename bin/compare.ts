@@ -43,7 +43,6 @@ async function main() {
       removed: 0,
     },
     updated: 0,
-    sshKeyChanged: 0,
     sshKeys: {
       changed: 0,
       addedED25519: 0,
