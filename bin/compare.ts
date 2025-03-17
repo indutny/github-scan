@@ -15,48 +15,82 @@ async function main() {
   const stats = {
     joined: 0,
     left: 0,
-    changes: {
-      name: 0,
-      company: 0,
-      bio: 0,
-      location: 0,
-      website: 0,
-      keys: 0,
+    remained: 0,
 
-      total: 0,
+    name: {
+      changed: 0,
+      added: 0,
+      removed: 0,
     },
-    migrations: {
-      ecc: 0,
-      rsa: 0,
+    company: {
+      changed: 0,
+      added: 0,
+      removed: 0,
+    },
+    bio: {
+      changed: 0,
+      added: 0,
+      removed: 0,
+    },
+    location: {
+      changed: 0,
+      added: 0,
+      removed: 0,
+    },
+    websiteUrl: {
+      changed: 0,
+      added: 0,
+      removed: 0,
+    },
+    updated: 0,
+    sshKeyChanged: 0,
+    sshKeys: {
+      changed: 0,
+      addedED25519: 0,
+      addedRSA: 0,
     },
   };
 
   let bioDiffSum = 0;
+  let bioDiffCount = 0;
+
+  const KEYS = [
+    'name' as const,
+    'company' as const,
+    'bio' as const,
+    'location' as const,
+    'websiteUrl' as const,
+  ];
 
   function compare(oldPair: Pair, newPair: Pair): void {
+    stats.remained++;
+
     const oldUser = oldPair.user;
     const oldKeys = oldPair.keys;
     const newUser = newPair.user;
     const newKeys = newPair.keys;
 
     if (oldUser.updatedAt !== newUser.updatedAt) {
-      stats.changes.total++;
+      stats.updated++;
     }
-    if (oldUser.name !== newUser.name) {
-      stats.changes.name++;
-    }
-    if (oldUser.company !== newUser.company) {
-      stats.changes.company++;
+
+    for (const key of KEYS) {
+      const before = oldUser[key];
+      const after = newUser[key];
+      if (before === after || !before && !after) {
+        continue;
+      }
+      if (!before) {
+        stats[key].added++;
+      } else if (!after) {
+        stats[key].removed++;
+      } else {
+        stats[key].changed++;
+      }
     }
     if (oldUser.bio !== newUser.bio) {
-      stats.changes.bio++;
       bioDiffSum += (newUser.bio || '').length - (oldUser.bio || '').length;
-    }
-    if (oldUser.location !== newUser.location) {
-      stats.changes.location++;
-    }
-    if (oldUser.websiteUrl !== newUser.websiteUrl) {
-      stats.changes.website++;
+      bioDiffCount++;
     }
 
     let keysChanged = false;
@@ -75,15 +109,15 @@ async function main() {
       return;
     }
 
-    stats.changes.keys++;
+    stats.sshKeys.changed++;
     const oldTypes = new Set(oldKeys.map(key => key.split(' ', 1)[0]));
     const newTypes = new Set(newKeys.map(key => key.split(' ', 1)[0]));
 
     if (!oldTypes.has('ssh-ed25519') && newTypes.has('ssh-ed25519')) {
-      stats.migrations.ecc++;
+      stats.sshKeys.addedED25519++;
     }
     if (!oldTypes.has('ssh-rsa') && newTypes.has('ssh-rsa')) {
-      stats.migrations.rsa++;
+      stats.sshKeys.addedRSA++;
     }
   }
 
@@ -108,7 +142,7 @@ async function main() {
       compare(oldPair, newPair);
       oldEntry = await oldIter.next();
       newEntry = await newIter.next();
-    } if (oldPair.user.id < newPair.user.id) {
+    } else if (oldPair.user.id < newPair.user.id) {
       onLeave(oldPair);
       oldEntry = await oldIter.next();
     } else {
@@ -119,6 +153,7 @@ async function main() {
 
   // TODO: move to the end
   console.log(stats);
+  console.log(`Average bio length diff: ${bioDiffSum / bioDiffCount}`);
 
   while (!oldEntry.done) {
     onLeave(oldEntry.value);

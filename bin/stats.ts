@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-  getPairIterator, parseSSHRSAKey,
+  getPairIterator, parseSSHRSAKey, countMap, printMap,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -56,41 +56,19 @@ function* computeCorrelation() {
 }
 
 async function main() {
-  function countMap<K>(map: Map<K, number>, key: K) {
-    let value: number;
-    if (map.has(key)) {
-      value = map.get(key)! + 1;
-    } else {
-      value = 1;
-    }
-    map.set(key, value);
-  }
-
-  function printMap<K>(map: Map<K, number>, total: number) {
-    const entries = Array.from(map.entries());
-
-    entries.sort((a, b) => {
-      return b[1] - a[1];
-    });
-
-    for (const [ key, count ] of entries) {
-      const percent = (count * 100) / total;
-
-      // Ignore outliers
-      if (percent < 0.01) {
-        continue;
-      }
-
-      console.log('  %s => %s %', key, percent.toFixed(2));
-    }
-  }
-
   const stats = {
     users: {
       total: 0,
       nonEmpty: 0,
       withKeys: 0,
       nonEmptyWithKeys: 0,
+
+      bioLength: 0,
+      bioCount: 0,
+
+      validUrl: 0,
+      urlCount: 0,
+      tld: new Map<string, number>(),
     },
     keys: {
       total: 0,
@@ -108,6 +86,28 @@ async function main() {
         pair.user.email || pair.user.websiteUrl || pair.user.company;
     if (nonEmpty) {
       stats.users.nonEmpty++;
+    }
+    if (pair.user.bio) {
+      stats.users.bioLength += pair.user.bio.length;
+      stats.users.bioCount++;
+    }
+
+    if (pair.user.websiteUrl) {
+      try {
+        let u: URL;
+        try {
+          u = new URL(pair.user.websiteUrl);
+        } catch {
+          u = new URL(`https://${pair.user.websiteUrl}`);
+        }
+        stats.users.validUrl++;
+
+        const tld = u.hostname.split('.').at(-1) ?? '';
+        countMap(stats.users.tld, tld);
+      } catch {
+        // no-op
+      }
+      stats.users.urlCount++;
     }
 
     const hasKeys = pair.keys.length !== 0;
@@ -139,9 +139,13 @@ async function main() {
   const percentNonEmptyWithKeys =
     (stats.users.nonEmptyWithKeys * 100) / stats.users.nonEmpty;
   const keysPerUser = stats.keys.total / stats.users.withKeys;
+  const avgBio = stats.users.bioLength / stats.users.bioCount;
+  const validUrl = (stats.users.validUrl * 100) / stats.users.urlCount;
 
   console.log('Total users: %d', stats.users.total);
   console.log('Non-empty users: %s %', percentNonEmpty.toFixed(2));
+  console.log('Average bio field (when present): %s', avgBio.toFixed(2));
+  console.log('Users with valid url %s %', validUrl.toFixed(2));
   console.log('Users with SSH keys: %s %',
     percentWithKeys.toFixed(2));
   console.log('Non-empty users with SSH keys: %s %',
@@ -150,6 +154,9 @@ async function main() {
     keysPerUser.toFixed(2));
   console.log('Correlation non-empty user + has keys: %s',
     correlation.next().value.toFixed(2));
+
+  console.log('Website TLD statistics:');
+  printMap(stats.users.tld, stats.users.validUrl);
 
   console.log('Key statistics:');
   printMap(stats.keys.categories, stats.keys.total);
