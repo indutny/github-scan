@@ -57,9 +57,9 @@ function buildUsersQuery(ids: ReadonlyArray<number>): string {
     if (id <= 91507725) {
       return Buffer.from(`04:User${id}`).toString('base64');
     } else {
-      const x = Buffer.from([ 0x92, 0x00, 0xce, 0, 0, 0, 0 ]);
-      x.writeUInt32BE(id, 3);
-      return `U_${x.toString('base64').replace(/=+$/g, '')}`;
+      const buf = Buffer.from([ 0x92, 0x00, 0xce, 0, 0, 0, 0 ]);
+      buf.writeUInt32BE(id, 3);
+      return `U_${buf.toString('base64').replace(/=+$/g, '')}`;
     }
   });
 
@@ -197,13 +197,24 @@ async function getUsers(
 }
 
 function formatUser(user: z.infer<typeof UserSchema>): Pair | false {
-  const nodeId = Buffer.from(user.id, 'base64').toString();
-  const match = nodeId.match(/^04:User(\d+)$/);
-  if (!match) {
-    return false;
-  }
+  let id: number;
+  if (user.id.startsWith('U_')) {
+    // Modern ID
+    const buf = Buffer.from(user.id.slice(2), 'base64');
+    if (buf[0] !== 0x92 || buf[1] !== 0x00 || buf[2] !== 0xce) {
+      return false;
+    }
+    id = buf.readUint32BE(3);
+  } else {
+    // Legacy ID
+    const nodeId = Buffer.from(user.id, 'base64').toString();
+    const match = nodeId.match(/^04:User(\d+)$/);
+    if (!match) {
+      return false;
+    }
 
-  const id = parseInt(match[1], 10);
+    id = parseInt(match[1], 10);
+  }
 
   return {
     user: {
