@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as debugAPI from 'debug';
 import { join } from 'path';
-import { Readable } from 'stream';
+import { Readable, PassThrough } from 'stream';
 import { createDecompressor } from 'lzma-native';
 import { z } from 'zod';
 

@@ -54,7 +54,13 @@ const UserResponseSchema = z.object({
 
 function buildUsersQuery(ids: ReadonlyArray<number>): string {
   const base64IDs = ids.map((id) => {
-    return Buffer.from(`04:User${id}`).toString('base64');
+    if (id <= 91507725) {
+      return Buffer.from(`04:User${id}`).toString('base64');
+    } else {
+      const x = Buffer.from([ 0x92, 0x00, 0xce, 0, 0, 0, 0 ]);
+      x.writeUInt32BE(id, 4);
+      return `U_${x.toString('base64').replace(/=+$/g, '')}`;
+    }
   });
 
   return `query {
