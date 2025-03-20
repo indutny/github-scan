@@ -12,40 +12,30 @@ import {
 
 const debug = debugAPI('github-scan');
 
-const KEYS_DIR = process.argv[2];
-const OUT_KEY_LIST = process.argv[3];
-
-async function* readKeys(stream: Readable): AsyncIterableIterator<string> {
-  for await (const pair of splitParse(stream)) {
-    const keyIds: number[] = [];
-    for (const key of pair.keys) {
-      const mod = parseSSHRSAKey(key);
-      if (!mod) {
-        continue;
-      }
-
-      yield mod;
-    }
-  }
-}
+const KEYS_DIRS = process.argv.slice(2);
 
 async function main() {
-  const out = fs.createWriteStream(OUT_KEY_LIST);
-
   // Calculated at: https://hur.st/bloomfilter/?n=10000000&p=1e-9&m=&k=
   //
-  // 1e6 elements with 1e-9 probability of false positive
+  // 1e7 elements with 1e-9 probability of false positive
   const seen = new BloomFilter(431327627, 30);
-  for await (const key of getPairIterator(KEYS_DIR)) {
-    if (seen.test(key)) {
-      debug('duplicate modulo');
-      continue;
-    }
+  for (const dir of KEYS_DIRS) {
+    for await (const { keys } of getPairIterator(dir)) {
+      for (const key of keys) {
+        const mod = parseSSHRSAKey(key);
+        if (!mod) {
+          continue;
+        }
+        if (seen.test(key)) {
+          debug('duplicate modulo');
+          continue;
+        }
 
-    seen.add(key);
-    out.write(key + '\n');
+        seen.add(key);
+        console.log(mod);
+      }
+    }
   }
-  out.end();
 }
 
 main().catch((e) => {
