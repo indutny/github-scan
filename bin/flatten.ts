@@ -12,9 +12,15 @@ import {
 
 const debug = debugAPI('github-scan');
 
-const KEYS_DIRS = process.argv.slice(2);
+const OUTPUT_FILE = process.argv[2];
+const KEYS_DIRS = process.argv.slice(3);
 
 async function main() {
+  const stream = fs.createWriteStream(OUTPUT_FILE);
+
+  let total = 0;
+  let duplicates = 0;
+
   // Calculated at: https://hur.st/bloomfilter/?n=10000000&p=1e-9&m=&k=
   //
   // 1e7 elements with 1e-9 probability of false positive
@@ -26,16 +32,28 @@ async function main() {
         if (!mod) {
           continue;
         }
+
+        total++;
         if (seen.test(key)) {
           debug('duplicate modulo');
+          duplicates++;
           continue;
         }
 
         seen.add(key);
-        console.log(mod);
+
+        const bin = Buffer.from(mod, 'hex');
+        const size = Buffer.alloc(4);
+        size.writeUInt32LE(bin.byteLength);
+        stream.write(size);
+        stream.write(bin);
       }
     }
   }
+
+  stream.end();
+
+  console.log(`Total: ${total}, duplicates: ${duplicates}`);
 }
 
 main().catch((e) => {
