@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-  getPairIterator, parseSSHRSAKey, countMap, printMap,
+  getUnorderedPairIterator, parseSSHRSAKey, countMap, printMap,
 } from '../src/common';
 
 const debug = debugAPI('github-scan');
@@ -79,7 +79,7 @@ async function main() {
 
   const correlation = computeCorrelation();
 
-  for await (const pair of getPairIterator(KEYS_DIR)) {
+  for await (const pair of getUnorderedPairIterator(KEYS_DIR)) {
     stats.users.total++;
 
     const nonEmpty = pair.user.name || pair.user.bio || pair.user.location ||

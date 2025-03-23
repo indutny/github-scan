@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as debugAPI from 'debug';
 import { join } from 'path';
 import { Readable, PassThrough } from 'stream';
+import { Worker } from 'worker_threads';
+import { cpus } from 'os';
 import { createDecompressor } from 'lzma-native';
 import { z } from 'zod';
 
@@ -118,6 +120,76 @@ export async function* getPairIterator(
       yield pair;
     }
   }
+}
+
+const BUFFER_SIZE = 1024;
+
+export function getUnorderedPairIterator(
+  dir: string,
+): AsyncIterableIterator<Pair> {
+  const workers = new Map<Worker, Array<Pair>>();
+
+  const buffer = new Array<Pair>();
+
+  let resume: (() => void) | undefined;
+
+  let remaining = cpus().length;
+  for (let i = 0; i < remaining; i++) {
+    const worker = new Worker(join(__dirname, 'worker.ts'), {
+      execArgv: ['-r', 'ts-node/register'],
+      workerData: {
+        dir,
+        index: i,
+        workerCount: remaining,
+        bufferSize: BUFFER_SIZE,
+      },
+    });
+
+    workers.set(worker, buffer);
+
+    worker.on('message', (page: Array<Pair>) => {
+      if (page.length === 0) {
+        remaining--;
+      }
+
+      if (resume !== undefined) {
+        const fn = resume;
+        fn();
+        resume = undefined;
+      }
+
+      for (const pair of page) {
+        buffer.push(pair);
+      }
+    });
+  }
+
+  const next = async (): Promise<IteratorResult<Pair>> => {
+    while (buffer.length === 0) {
+      if (remaining === 0) {
+        return { value: undefined, done: true };
+      }
+
+      await new Promise<void>(resolve => {
+        resume = resolve;
+      });
+    }
+
+    const value = buffer.shift();
+    if (value === undefined) {
+      throw new Error('Unexpected');
+    }
+    return { value, done: false };
+  };
+
+  const res = {
+    next,
+    [Symbol.asyncIterator]() {
+      return res;
+    },
+  };
+
+  return res;
 }
 
 export function parseSSHRSAKey(key: string): string | false {
